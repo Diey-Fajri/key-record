@@ -46,6 +46,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 controller: _queryController,
                 decoration: InputDecoration(
                   labelText: 'Search by key, borrower, company, or zone',
+                  hintText: 'Example: L8/190, SRV-ROOM-01, 850505-14-7788, Ali, Zone-23B',
                   prefixIcon: const Icon(Icons.search),
                   filled: true,
                   fillColor: Colors.white,

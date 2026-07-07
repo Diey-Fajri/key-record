@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'auth_service.dart';
 
@@ -14,14 +13,12 @@ class AppNotificationService {
   static bool _initialized = false;
   static bool _readyToShow = false;
   static bool _dialogVisible = false;
-  static SharedPreferences? _prefs;
 
   static Future<void> start() async {
     if (_initialized) {
       return;
     }
 
-    _prefs = await SharedPreferences.getInstance();
     _initialized = true;
 
     if (!Firebase.apps.isNotEmpty) {
@@ -67,28 +64,41 @@ class AppNotificationService {
         continue;
       }
 
-      final doc = change.doc;
-      final data = doc.data();
-      if (data == null) {
-        continue;
-      }
+      try {
+        final doc = change.doc;
+        final data = doc.data();
+        if (data == null) {
+          continue;
+        }
 
-      final readBy = (data['readBy'] as List<dynamic>? ?? const []).cast<String>();
-      if (readBy.contains(AuthService.activeUser)) {
-        continue;
-      }
+        final rawReadBy = data['readBy'];
+        final readBy = <String>[];
+        if (rawReadBy is List) {
+          for (final item in rawReadBy) {
+            if (item is String) {
+              readBy.add(item);
+            }
+          }
+        }
 
-      await _showPopup(
-        context: context,
-        title: data['title'] as String? ?? 'Notification',
-        body: data['body'] as String? ?? '',
-        docId: doc.id,
-      );
+        if (readBy.contains(AuthService.activeUser)) {
+          continue;
+        }
+
+        await _showPopup(
+          context: context,
+          title: data['title']?.toString() ?? 'Notification',
+          body: data['body']?.toString() ?? '',
+          docId: doc.id,
+        );
+      } catch (error) {
+        debugPrint('Notification parse error: $error');
+      }
     }
   }
 
   static BuildContext? _rootContext() {
-    return appNavigatorKey.currentContext;
+    return appNavigatorKey.currentState?.overlay?.context;
   }
 
   static Future<void> _showPopup({
@@ -108,35 +118,20 @@ class AppNotificationService {
       }
 
       final completer = Completer<void>();
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        if (!context.mounted) {
-          if (!completer.isCompleted) {
-            completer.complete();
-          }
-          return;
-        }
-
-        try {
-          await showDialog<void>(
-            context: context,
-            barrierDismissible: true,
-            builder: (dialogContext) {
-              return AlertDialog(
-                title: Text(title),
-                content: Text(body),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(dialogContext).pop(),
-                    child: const Text('Close'),
-                  ),
-                ],
-              );
-            },
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final messengerState = appScaffoldMessengerKey.currentState;
+        if (messengerState != null) {
+          messengerState.hideCurrentSnackBar();
+          messengerState.showSnackBar(
+            SnackBar(
+              content: Text('$title\n$body'),
+              duration: const Duration(seconds: 4),
+              behavior: SnackBarBehavior.floating,
+            ),
           );
-        } finally {
-          if (!completer.isCompleted) {
-            completer.complete();
-          }
+        }
+        if (!completer.isCompleted) {
+          completer.complete();
         }
       });
       await completer.future;
@@ -158,3 +153,5 @@ class AppNotificationService {
 }
 
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
+final GlobalKey<ScaffoldMessengerState> appScaffoldMessengerKey =
+  GlobalKey<ScaffoldMessengerState>();

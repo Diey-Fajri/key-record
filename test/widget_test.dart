@@ -1,7 +1,6 @@
 // gestures. You can also use WidgetTester to find child widgets in the widget
 // tree, read text, and verify that the values of widget properties are correct.
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:key_record/app.dart';
@@ -18,18 +17,15 @@ void main() {
     expect(find.text('Master Key A-01'), findsOneWidget);
     expect(find.text('In Use'), findsWidgets);
 
-    // Open Smart Detail for one in-use key.
-    final detailButton = find.byKey(
-      const ValueKey('smart-detail-Master Key A-01'),
-    );
-
+    // Open detail for one key in use.
+    final detailButton = find.text('Detail').first;
     await tester.ensureVisible(detailButton);
     await tester.tap(detailButton);
     await tester.pumpAndSettle();
 
-    // Verify smart detail information is visible.
-    expect(find.text('Smart Detail'), findsOneWidget);
-    expect(find.text('Borrower Name'), findsOneWidget);
-    expect(find.text('Returned'), findsOneWidget);
+    // Verify take-key detail information is visible.
+    expect(find.text('Take Key Details'), findsOneWidget);
+    expect(find.text('IC / Passport'), findsOneWidget);
+    expect(find.text('Status'), findsOneWidget);
   });
 }

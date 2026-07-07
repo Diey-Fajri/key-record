@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
 import '../../services/key_repository.dart';
+import '../event_log/event_log_screen.dart';
 
 class RegisterNewKeyScreen extends StatefulWidget {
   const RegisterNewKeyScreen({super.key});
@@ -38,6 +39,7 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
     'Master Key',
     'Lot',
     'Roller Shutter',
+    'High Risk',
     'Others',
   ];
 
@@ -136,12 +138,17 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                         if (value != null) {
                           setState(() {
                             _category = value;
-                            _status = _category == 'Lot' || _category == 'Roller Shutter'
-                                ? _lotStatusOptions.first
-                                : _zoneStatusOptions.first;
+                            if (_category == 'High Risk') {
+                              _status = 'High Risk';
+                            } else {
+                              _status = _category == 'Lot' || _category == 'Roller Shutter'
+                                  ? _lotStatusOptions.first
+                                  : _zoneStatusOptions.first;
+                            }
                             if (_category == 'Lot') {
                               _level = 'B2';
                             }
+                            _clearFieldsForCategory(_category);
                           });
                         }
                       },
@@ -179,7 +186,7 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                       },
                     ),
                     const SizedBox(height: 12),
-                    if (_category == 'Zone' || _category == 'Others') ...[
+                    if (_category == 'Zone' || _category == 'Others' || _category == 'High Risk') ...[
                       TextFormField(
                         controller: _zoneController,
                         decoration: _inputDecoration('Zone', Icons.map),
@@ -233,17 +240,22 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                     if (_category != 'Roller Shutter') ...[
                       TextFormField(
                         controller: _doorIdController,
-                        decoration: _inputDecoration('Door ID${_isDoorIdOptional() ? ' (Optional)' : ''}', Icons.door_front_door),
-                        validator: _category == 'Master Key' || _category == 'Lot' ? _optional : _required,
+                        decoration: _inputDecoration('Door ID (Optional)', Icons.door_front_door),
+                        validator: _optional,
                       ),
                       const SizedBox(height: 12),
                     ],
-                    TextFormField(
-                      controller: _keyNameController,
-                      decoration: _inputDecoration('Key Name', Icons.key),
-                      validator: _required,
-                    ),
-                    const SizedBox(height: 12),
+                    if (_category != 'Roller Shutter') ...[
+                      TextFormField(
+                        controller: _keyNameController,
+                        decoration: _inputDecoration(
+                          _category == 'Lot' ? 'Key Name (Optional)' : 'Key Name',
+                          Icons.key,
+                        ),
+                        validator: _category == 'Lot' ? _optional : _required,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                     DropdownButtonFormField<String>(
                       initialValue: _status,
                       decoration: _inputDecoration('Status', Icons.info_outline),
@@ -352,6 +364,9 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
   }
 
   List<String> _getStatusOptions() {
+    if (_category == 'High Risk') {
+      return const ['High Risk'];
+    }
     if (_category == 'Lot' || _category == 'Roller Shutter') {
       return _lotStatusOptions;
     }
@@ -363,10 +378,6 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
       return _detailStatusesLot.contains(_status);
     }
     return _detailStatusesZone.contains(_status);
-  }
-
-  bool _isDoorIdOptional() {
-    return _category == 'Master Key' || _category == 'Lot';
   }
 
   String? _required(String? value) {
@@ -393,11 +404,15 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
       return;
     }
 
-    final keyName = _keyNameController.text.trim();
+    final category = _cleanChoice(_category);
+    final location = _cleanChoice(_location);
+    final level = _cleanChoice(_level);
+    final status = _cleanChoice(_status);
+    final keyName = _resolveKeyName();
     final keyId = _generateKeyId();
     final metadata = <String, dynamic>{
-      'location': _location,
-      'level': _level,
+      'location': location,
+      'level': level,
       'doorId': _doorIdController.text.trim(),
       'zone': _zoneController.text.trim(),
       'masterKey': _masterKeyController.text.trim(),
@@ -416,14 +431,14 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
     };
 
     final recordedBy = AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin';
-    final status = _status.isEmpty ? 'Available' : _status;
+    final finalStatus = status.isEmpty ? 'Available' : status;
 
     await KeyRecordRepository.registerNewKey(
       keyId: keyId,
-      zone: _zoneController.text.trim().isEmpty ? _location : _zoneController.text.trim(),
+      zone: _zoneController.text.trim().isEmpty ? location : _zoneController.text.trim(),
       keyName: keyName,
-      category: _category,
-      status: status,
+      category: category,
+      status: finalStatus,
       recordedBy: recordedBy,
       metadata: metadata,
     );
@@ -435,8 +450,19 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
       builder: (context) {
         return AlertDialog(
           title: const Text('Key Registered'),
-          content: Text('The key "$keyName" has been registered with status "$status".'),
+          content: Text('The key "$keyName" has been registered with status "$finalStatus".'),
           actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.of(this.context).pushReplacement(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const EventLogScreen(),
+                  ),
+                );
+              },
+              child: const Text('View Event Log'),
+            ),
             TextButton(
               onPressed: () {
                 Navigator.of(context).pop();
@@ -451,7 +477,7 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
   }
 
   String _generateKeyId() {
-    final baseId = _category == 'Zone' || _category == 'Others'
+    final baseId = _category == 'Zone' || _category == 'Others' || _category == 'High Risk'
         ? _zoneController.text.trim()
         : _category == 'Master Key'
             ? _masterKeyController.text.trim()
@@ -459,10 +485,47 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                 ? _lotKeyController.text.trim()
                 : _rollerLevelNoController.text.trim();
 
-    final normalizedBase = baseId.replaceAll(' ', '').toUpperCase();
-    final normalizedName = _keyNameController.text.trim().replaceAll(' ', '').toUpperCase();
+    final fallbackBase = baseId.isEmpty ? _location : baseId;
+    final normalizedBase = fallbackBase.replaceAll(' ', '').toUpperCase();
+    final normalizedName = _resolveKeyName()
+      .replaceAll(' ', '')
+      .toUpperCase();
     final normalizedCategory = _category.replaceAll(' ', '').toUpperCase();
     return '$normalizedCategory-$normalizedBase-$normalizedName';
+  }
+
+  String _resolveKeyName() {
+    if (_category == 'Roller Shutter') {
+      return _rollerNumberController.text.trim();
+    }
+
+    final typedName = _keyNameController.text.trim();
+    if (_category == 'Lot' && typedName.isEmpty) {
+      return _lotKeyController.text.trim();
+    }
+
+    return typedName;
+  }
+
+  String _cleanChoice(String value) {
+    return value.trim();
+  }
+
+  void _clearFieldsForCategory(String category) {
+    if (category != 'Zone' && category != 'Others' && category != 'High Risk') {
+      _zoneController.clear();
+    }
+    if (category != 'Master Key') {
+      _masterKeyController.clear();
+    }
+    if (category != 'Lot') {
+      _lotKeyController.clear();
+    }
+    if (category != 'Roller Shutter') {
+      _rollerLevelNoController.clear();
+      _frsController.clear();
+      _rollerNumberController.clear();
+    }
   }
 
   bool _validateStatusDetails() {

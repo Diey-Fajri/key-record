@@ -7,12 +7,11 @@ import '../../services/app_notification_service.dart';
 import '../../services/key_repository.dart';
 import '../all_keys/all_keys_screen.dart';
 import '../event_log/event_log_screen.dart';
-import '../no_return/no_return_screen.dart';
 import '../register/register.dart';
+import '../register/take_key_detail_screen.dart';
 import '../register_new_key/register_new_key_screen.dart';
 import '../search/search_screen.dart';
 import '../settings/settings_screen.dart';
-import '../smart_detail/smart_detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -61,7 +60,11 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           IconButton(
             tooltip: 'Settings',
-            onPressed: () => _handleNavigation('Settings'),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const SettingsScreen()),
+              );
+            },
             icon: const Icon(Icons.settings_outlined),
           ),
         ],
@@ -75,79 +78,84 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 if (isWide) _NavigationRail(onSelected: _handleNavigation),
                 Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _HeaderSection(now: _now),
-                        const SizedBox(height: 16),
-                        _SearchBar(
-                          controller: _searchController,
-                          onSubmitted: (value) {
-                            Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => SearchScreen(
-                                  initialQuery: value.trim(),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                        if (!isWide) ...[
+                  child: RefreshIndicator(
+                    onRefresh: _refreshHomeData,
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _HeaderSection(now: _now),
                           const SizedBox(height: 16),
-                          _NavigationGrid(onSelected: _handleNavigation),
-                        ],
-                        const SizedBox(height: 24),
-                        Text(
-                          'Keys Currently In Use',
-                          style: Theme.of(context).textTheme.titleLarge
-                              ?.copyWith(fontWeight: FontWeight.w700),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Live list for keys collection where status is "in Use".',
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(color: Colors.black54),
-                        ),
-                        const SizedBox(height: 12),
-                        StreamBuilder<List<KeyRecord>>(
-                          stream: _keysInUseStream,
-                          builder: (context, snapshot) {
-                            if (snapshot.connectionState ==
-                                    ConnectionState.waiting &&
-                                !snapshot.hasData) {
-                              return const Center(
-                                child: Padding(
-                                  padding: EdgeInsets.all(32),
-                                  child: CircularProgressIndicator(),
+                          _SearchBar(
+                            controller: _searchController,
+                            onSubmitted: (value) {
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => SearchScreen(
+                                    initialQuery: value.trim(),
+                                  ),
                                 ),
                               );
-                            }
-
-                            final keys = snapshot.data ?? const [];
-
-                            if (keys.isEmpty) {
-                              return const _EmptyKeysState();
-                            }
-
-                            return ListView.separated(
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              itemCount: keys.length,
-                              separatorBuilder: (context, index) =>
-                                  const SizedBox(height: 12),
-                              itemBuilder: (context, index) {
-                                return KeyInUseCard(
-                                  record: keys[index],
-                                  onDetail: () =>
-                                      _openSmartDetail(context, keys[index]),
+                            },
+                          ),
+                          if (!isWide) ...[
+                            const SizedBox(height: 16),
+                            _NavigationGrid(onSelected: _handleNavigation),
+                          ],
+                          const SizedBox(height: 24),
+                          Text(
+                            'Keys Currently In Use',
+                            style: Theme.of(context).textTheme.titleLarge
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Live list for keys collection where status is "in Use".',
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(color: Colors.black54),
+                          ),
+                          const SizedBox(height: 12),
+                          StreamBuilder<List<KeyRecord>>(
+                            stream: _keysInUseStream,
+                            builder: (context, snapshot) {
+                              if (snapshot.connectionState ==
+                                      ConnectionState.waiting &&
+                                  !snapshot.hasData) {
+                                return const Center(
+                                  child: Padding(
+                                    padding: EdgeInsets.all(32),
+                                    child: CircularProgressIndicator(),
+                                  ),
                                 );
-                              },
-                            );
-                          },
-                        ),
-                      ],
+                              }
+
+                              final keys = snapshot.data ?? const [];
+                              final borrowerGroups = _groupKeysByBorrower(keys);
+
+                              if (borrowerGroups.isEmpty) {
+                                return const _EmptyKeysState();
+                              }
+
+                              return ListView.separated(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                itemCount: borrowerGroups.length,
+                                separatorBuilder: (context, index) =>
+                                    const SizedBox(height: 12),
+                                itemBuilder: (context, index) {
+                                  return KeyInUseCard(
+                                    group: borrowerGroups[index],
+                                    onDetail: (record) => _openTakeKeyDetail(context, record),
+                                    onReturn: (record) => _returnKey(context, record),
+                                  );
+                                },
+                              );
+                            },
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -181,13 +189,6 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    if (label == 'Firestore Database') {
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => const AllKeysScreen()),
-      );
-      return;
-    }
-
     if (label == 'Event Log') {
       Navigator.of(context).push(
         MaterialPageRoute<void>(builder: (_) => const EventLogScreen()),
@@ -195,27 +196,83 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    if (label == 'No Return / Lost / At Maintenance') {
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => const NoReturnScreen()),
-      );
-      return;
-    }
-
-    if (label == 'Settings') {
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => const SettingsScreen()),
-      );
-      return;
-    }
-
     _showComingSoon(context, label);
   }
 
-  void _openSmartDetail(BuildContext context, KeyRecord record) {
+  void _openTakeKeyDetail(BuildContext context, KeyRecord record) {
     Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => SmartDetailScreen(record: record)),
+      MaterialPageRoute<void>(builder: (_) => TakeKeyDetailScreen(record: record)),
     );
+  }
+
+  Future<void> _returnKey(BuildContext context, KeyRecord record) async {
+    await KeyRecordRepository.returnKey(record);
+    if (!context.mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('${record.keyName} is now available.')),
+    );
+  }
+
+  Future<void> _refreshHomeData() async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final connected = await KeyRecordRepository.refreshAllFromFirestore();
+      if (!mounted) {
+        return;
+      }
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            connected
+                ? 'refreshing complete, have a nice day !'
+                : 'Firebase not connected. Showing local data.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      messenger.showSnackBar(
+        SnackBar(content: Text('Refresh failed: $error')),
+      );
+    }
+  }
+
+  List<BorrowerKeyGroup> _groupKeysByBorrower(List<KeyRecord> keys) {
+    final groups = <String, List<KeyRecord>>{};
+    for (final key in keys) {
+      final borrower = _borrowerLabel(key);
+      final category = key.metadata['borrowerCategory']?.toString().trim() ?? '';
+      final groupKey = '$borrower|$category';
+      groups.putIfAbsent(groupKey, () => <KeyRecord>[]).add(key);
+    }
+
+    return groups.entries.map((entry) {
+      final sample = entry.value.first;
+      return BorrowerKeyGroup(
+        borrowerName: _borrowerLabel(sample),
+        borrowerCategory: sample.metadata['borrowerCategory']?.toString().trim() ?? '',
+        keys: entry.value,
+      );
+    }).toList();
+  }
+
+  String _borrowerLabel(KeyRecord key) {
+    final staffName = key.metadata['staffName']?.toString().trim() ?? '';
+    final othersName = key.metadata['othersName']?.toString().trim() ?? '';
+    if (staffName.isNotEmpty) {
+      return staffName;
+    }
+    if (othersName.isNotEmpty) {
+      return othersName;
+    }
+    if (key.borrowerName.trim().isNotEmpty) {
+      return key.borrowerName;
+    }
+    return 'Unknown';
   }
 
   void _showComingSoon(BuildContext context, String label) {
@@ -325,7 +382,7 @@ class _SearchBar extends StatelessWidget {
       decoration: InputDecoration(
         filled: true,
         fillColor: Colors.white,
-        hintText: 'Search key, borrower, company, or zone',
+        hintText: 'Search e.g. L8/190, SRV-ROOM-01, 0123456789, Zone-23B',
         prefixIcon: const Icon(Icons.search),
         suffixIcon: IconButton(
           tooltip: 'Open search',
@@ -421,94 +478,262 @@ class _NavigationRail extends StatelessWidget {
 }
 
 class KeyInUseCard extends StatelessWidget {
-  const KeyInUseCard({required this.record, required this.onDetail, super.key});
+  const KeyInUseCard({
+    required this.group,
+    required this.onDetail,
+    required this.onReturn,
+    super.key,
+  });
 
-  final KeyRecord record;
-  final VoidCallback onDetail;
+  final BorrowerKeyGroup group;
+  final ValueChanged<KeyRecord> onDetail;
+  final ValueChanged<KeyRecord> onReturn;
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      elevation: 0,
+      elevation: 2,
+      shadowColor: const Color(0x14000000),
       color: Colors.white,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: const BorderSide(color: Color(0xFFE0E5E8)),
+        borderRadius: BorderRadius.circular(14),
+        side: const BorderSide(color: Color(0xFFD8E0E4)),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final compact = constraints.maxWidth < 560;
-            final keyInfo = Row(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                CircleAvatar(
-                  backgroundColor: const Color(0xFFE8F3F1),
-                  foregroundColor: const Color(0xFF00695C),
-                  child: const Icon(Icons.vpn_key_outlined),
+                Container(
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      colors: [Color(0xFF0D5B4A), Color(0xFF1B8A70)],
+                    ),
+                  ),
+                  child: const CircleAvatar(
+                    backgroundColor: Colors.transparent,
+                    foregroundColor: Colors.white,
+                    child: Icon(Icons.person_outline),
+                  ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        record.keyName,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w700),
+                        'Borrower: ${group.borrowerName}',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        record.zone,
-                        style: Theme.of(
-                          context,
-                        ).textTheme.bodyMedium?.copyWith(color: Colors.black54),
-                      ),
+                      if (group.borrowerCategory.isNotEmpty)
+                        Container(
+                          margin: const EdgeInsets.only(top: 4),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE8F3F1),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            group.borrowerCategory,
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: const Color(0xFF0D5B4A),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
-              ],
-            );
-            final actions = Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
                 const _StatusTag(),
-                FilledButton.icon(
-                  key: ValueKey('smart-detail-${record.keyName}'),
-                  onPressed: onDetail,
-                  icon: const Icon(Icons.open_in_new, size: 18),
-                  label: const Text('Smart Detail'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF00695C),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Column(
+              children: group.keys.map((record) {
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFFFCFEFF), Color(0xFFF2F7FB)],
                     ),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFDCE6EE)),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x12000000),
+                        blurRadius: 10,
+                        offset: Offset(0, 4),
+                      ),
+                    ],
                   ),
-                ),
-              ],
-            );
-
-            if (compact) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [keyInfo, const SizedBox(height: 12), actions],
-              );
-            }
-
-            return Row(
-              children: [
-                Expanded(child: keyInfo),
-                const SizedBox(width: 12),
-                actions,
-              ],
-            );
-          },
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [Color(0xFFD7ECFF), Color(0xFFEAF5FF)],
+                          ),
+                          borderRadius: BorderRadius.only(
+                            topLeft: Radius.circular(10),
+                            topRight: Radius.circular(10),
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            Text(
+                              'KEY CATEGORY',
+                              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: const Color(0xFF385B7A),
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.6,
+                                  ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              record.category,
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: const Color(0xFF0D47A1),
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        height: 3,
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [Color(0xFF4FA1E8), Color(0xFF8BC7FF), Color(0xFF4FA1E8)],
+                          ),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                      Text(
+                        _keyDisplayLabel(record),
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        _formatTakenDateTime(record.takenAt),
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodySmall
+                            ?.copyWith(color: Colors.black54),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          FilledButton(
+                            onPressed: () => onReturn(record),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF2E7D32),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            child: const Text('Return'),
+                          ),
+                          OutlinedButton(
+                            onPressed: () => onDetail(record),
+                            style: OutlinedButton.styleFrom(
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            child: const Text('Detail'),
+                          ),
+                        ],
+                      ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
         ),
       ),
     );
+  }
+
+  String _keyDisplayLabel(KeyRecord record) {
+    final level = record.metadata['level']?.toString().trim() ?? '';
+    final zone = record.metadata['zone']?.toString().trim() ?? record.zone;
+    final masterKey = record.metadata['masterKey']?.toString().trim() ?? '';
+    final lot = record.metadata['lotKey']?.toString().trim() ?? '';
+    final rollerLevelNo = record.metadata['rollerLevelNo']?.toString().trim() ?? '';
+    final rollerNumber = record.metadata['rollerNumber']?.toString().trim() ?? '';
+
+    if (record.category == 'Zone') {
+      if (level.isNotEmpty && zone.isNotEmpty) {
+        return '$level/$zone';
+      }
+      return zone;
+    }
+
+    if (record.category == 'Master Key') {
+      if (masterKey.isNotEmpty) {
+        return masterKey;
+      }
+      return record.keyName;
+    }
+
+    if (record.category == 'Lot') {
+      if (level.isNotEmpty && lot.isNotEmpty) {
+        return '$level/$lot';
+      }
+      if (lot.isNotEmpty) {
+        return lot;
+      }
+      return record.keyName;
+    }
+
+    if (record.category == 'Roller Shutter') {
+      if (rollerLevelNo.isNotEmpty && rollerNumber.isNotEmpty) {
+        return '$rollerLevelNo / $rollerNumber';
+      }
+      if (rollerLevelNo.isNotEmpty) {
+        return rollerLevelNo;
+      }
+      if (rollerNumber.isNotEmpty) {
+        return rollerNumber;
+      }
+      return record.keyName;
+    }
+
+    return record.keyName;
+  }
+
+  String _formatTakenDateTime(DateTime value) {
+    final day = value.day.toString().padLeft(2, '0');
+    final month = value.month.toString().padLeft(2, '0');
+    final year = value.year.toString();
+    final hour = value.hour.toString().padLeft(2, '0');
+    final minute = value.minute.toString().padLeft(2, '0');
+    return '$day/$month/$year $hour${minute}HRS';
   }
 }
 
@@ -518,11 +743,11 @@ class _StatusTag extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFE5E5),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFFFB7B7)),
+        color: const Color(0xFFFFF0F0),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFF3B3B3)),
       ),
       child: const Text(
         'In Use',
@@ -568,10 +793,19 @@ const List<_NavigationItem> _navigationItems = [
   _NavigationItem('Register New Key', Icons.add_card_outlined),
   _NavigationItem('Event Log', Icons.receipt_long_outlined),
   _NavigationItem('All Keys', Icons.list_alt_outlined),
-  _NavigationItem('Firestore Database', Icons.cloud_outlined),
-  _NavigationItem('No Return / Lost / At Maintenance', Icons.warning_amber),
-  _NavigationItem('Settings', Icons.settings_outlined),
 ];
+
+class BorrowerKeyGroup {
+  const BorrowerKeyGroup({
+    required this.borrowerName,
+    required this.borrowerCategory,
+    required this.keys,
+  });
+
+  final String borrowerName;
+  final String borrowerCategory;
+  final List<KeyRecord> keys;
+}
 
 String _formatDate(DateTime value) {
   const months = [

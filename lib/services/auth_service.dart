@@ -15,6 +15,13 @@ class AuthService {
 
   static bool get isAuthenticated => _authenticated;
   static String get activeUser => _activeUser;
+  static String get activeEmail {
+    final firebaseEmail = _auth.currentUser?.email?.trim() ?? '';
+    if (firebaseEmail.isNotEmpty) {
+      return firebaseEmail;
+    }
+    return _prefs?.getString('storedEmail')?.trim() ?? '';
+  }
 
   static bool get _firebaseAvailable => Firebase.apps.isNotEmpty;
   static FirebaseFirestore get _firestore => FirebaseFirestore.instance;
@@ -256,6 +263,52 @@ class AuthService {
     await _prefs?.remove('storedUsername');
     await _prefs?.remove('storedEmail');
     await _prefs?.remove('storedPassword');
+  }
+
+  static Future<void> updateUsername(String username) async {
+    final normalized = username.trim();
+    if (normalized.isEmpty) {
+      return;
+    }
+
+    _activeUser = normalized;
+    await _prefs?.setString('activeUser', normalized);
+    await _prefs?.setString('storedUsername', normalized);
+
+    if (_firebaseAvailable) {
+      final user = _auth.currentUser;
+      if (user != null) {
+        await _firestore.collection('users').doc(user.uid).set({
+          'username': normalized,
+          'email': user.email,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      } else {
+        final storedEmail = _prefs?.getString('storedEmail')?.trim();
+        if (storedEmail != null && storedEmail.isNotEmpty) {
+          final normalizedEmail = _normalizeEmail(storedEmail);
+          final matches = await _firestore
+              .collection('users')
+              .where('email', isEqualTo: normalizedEmail)
+              .limit(1)
+              .get();
+
+          if (matches.docs.isNotEmpty) {
+            await matches.docs.first.reference.set({
+              'username': normalized,
+              'email': normalizedEmail,
+              'updatedAt': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
+          } else {
+            await _firestore.collection('users').doc(normalizedEmail).set({
+              'username': normalized,
+              'email': normalizedEmail,
+              'updatedAt': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
+          }
+        }
+      }
+    }
   }
 
   static bool shouldPromptForSetupAfterAuthError(String code) {

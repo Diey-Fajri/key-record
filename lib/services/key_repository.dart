@@ -79,12 +79,17 @@ class EventLog {
   static EventLog fromFirestore(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data();
     final takenTimestamp = data['dateTimeTaken'];
+    final createdAtTimestamp = data['createdAt'];
     final returnedTimestamp = data['dateTimeReturned'];
     final dateTimeTaken = takenTimestamp is Timestamp
         ? takenTimestamp.toDate()
         : takenTimestamp is DateTime
             ? takenTimestamp
-            : DateTime.now();
+        : createdAtTimestamp is Timestamp
+          ? createdAtTimestamp.toDate()
+          : createdAtTimestamp is DateTime
+            ? createdAtTimestamp
+            : DateTime.fromMillisecondsSinceEpoch(0);
     final dateTimeReturned = returnedTimestamp is Timestamp
         ? returnedTimestamp.toDate()
         : returnedTimestamp is DateTime
@@ -381,12 +386,61 @@ class KeyRecordRepository {
 
   static Future<void> _saveKey(KeyRecord key) async {
     if (!_firestoreAvailable) return;
-    await _keysCollection.doc(key.keyId).set(key.toFirestore());
+    final normalizedKeyId = _normalizeKeyId(key.keyId);
+    final snapshot = await _keysCollection.get();
+    final matches = snapshot.docs.where((doc) {
+      final data = doc.data();
+      final docKeyId = data['keyId'] as String? ?? doc.id;
+      return _normalizeKeyId(docKeyId) == normalizedKeyId;
+    }).toList(growable: false);
+
+    if (matches.isNotEmpty) {
+      await matches.first.reference.set(key.toFirestore(), SetOptions(merge: true));
+      // Clean up duplicates so one keyId maps to one Firestore document.
+      for (final duplicate in matches.skip(1)) {
+        await duplicate.reference.delete();
+      }
+      return;
+    }
+
+    await _keysCollection.doc(_keyDocId(key.keyId)).set(key.toFirestore());
+  }
+
+  // Firestore document IDs cannot contain '/'.
+  static String _keyDocId(String keyId) {
+    final normalized = keyId.trim();
+    if (normalized.isEmpty) {
+      return 'unknown-key';
+    }
+    return normalized.replaceAll('/', '_');
+  }
+
+  static String _normalizeKeyId(String keyId) {
+    return keyId.trim().toUpperCase();
+  }
+
+  static String _dedupeIdentity(KeyRecord key) {
+    final normalizedId = _normalizeKeyId(key.keyId);
+    if (normalizedId.isNotEmpty && normalizedId != 'UNKNOWN-KEY') {
+      return normalizedId;
+    }
+
+    final category = key.category.trim().toUpperCase();
+    final zone = key.zone.trim().toUpperCase();
+    final name = key.keyName.trim().toUpperCase();
+    return '$category|$zone|$name';
+  }
+
+  static bool _isActiveStatus(String status) {
+    final normalized = status.trim().toLowerCase();
+    return normalized == 'in use' || normalized == 'hand over';
   }
 
   static Future<void> _saveEventLog(EventLog event) async {
     if (!_firestoreAvailable) return;
-    final docRef = await _eventLogCollection.add(event.toFirestore());
+    final payload = event.toFirestore()
+      ..['createdAt'] = FieldValue.serverTimestamp();
+    final docRef = await _eventLogCollection.add(payload);
     final updatedEvent = event.copyWith(id: docRef.id);
     final index = _eventLogs.indexWhere((existing) => identical(existing, event));
     if (index != -1) {
@@ -416,39 +470,59 @@ class KeyRecordRepository {
     });
   }
 
-  static Future<void> _updateEventLog(EventLog event) async {
-    if (!_firestoreAvailable || event.id == null) return;
-    await _eventLogCollection.doc(event.id).update(event.toFirestore());
-  }
-
   static Stream<List<KeyRecord>> watchAllKeys() {
     if (!_firestoreAvailable) {
       return _keysController.stream;
     }
 
-    return _keysCollection.snapshots().map((snapshot) {
-      final keys = snapshot.docs.map((doc) => KeyRecord.fromFirestore(doc)).toList();
-      _keys
-        ..clear()
-        ..addAll(keys);
-      _keysController.add(List.unmodifiable(_keys));
-      return keys;
+    return Stream<List<KeyRecord>>.multi((controller) {
+      controller.add(List<KeyRecord>.unmodifiable(_keys));
+
+      final subscription = _keysCollection.snapshots().listen(
+        (snapshot) {
+          final keys = _dedupeKeysById(
+            snapshot.docs.map((doc) => KeyRecord.fromFirestore(doc)),
+          );
+          _keys
+            ..clear()
+            ..addAll(keys);
+          final latest = List<KeyRecord>.unmodifiable(_keys);
+          _keysController.add(latest);
+          controller.add(latest);
+        },
+        onError: (_) {
+          // Keep serving local cache if Firestore stream fails.
+          controller.add(List<KeyRecord>.unmodifiable(_keys));
+        },
+      );
+
+      controller.onCancel = () => subscription.cancel();
     });
   }
 
-  static Stream<List<KeyRecord>> watchKeysInUse() {
+  static Future<void> refreshKeysFromFirestore() async {
     if (!_firestoreAvailable) {
-      return _keysController.stream.map(
-        (keys) => keys.where((key) => key.status == 'In Use').toList(),
-      );
+      _keysController.add(List<KeyRecord>.unmodifiable(_keys));
+      return;
     }
 
-    return _keysCollection
-        .where('status', isEqualTo: 'In Use')
-        .snapshots()
-        .map((snapshot) => snapshot.docs
-            .map((doc) => KeyRecord.fromFirestore(doc))
-            .toList());
+    final snapshot = await _keysCollection.get();
+    final keys = _dedupeKeysById(
+      snapshot.docs.map((doc) => KeyRecord.fromFirestore(doc)),
+    );
+
+    _keys
+      ..clear()
+      ..addAll(keys);
+    _keysController.add(List<KeyRecord>.unmodifiable(_keys));
+  }
+
+  static Stream<List<KeyRecord>> watchKeysInUse() {
+    return watchAllKeys().map(
+      (keys) => keys
+          .where((key) => _isActiveStatus(key.status))
+          .toList(growable: false),
+    );
   }
 
   static Stream<List<EventLog>> watchEventLogs() {
@@ -456,17 +530,155 @@ class KeyRecordRepository {
       return _eventLogsController.stream;
     }
 
-    return _eventLogCollection
-        .orderBy('dateTimeTaken', descending: true)
-        .snapshots()
-        .map((snapshot) {
-          final events = snapshot.docs.map((doc) => EventLog.fromFirestore(doc)).toList();
+    return Stream<List<EventLog>>.multi((controller) {
+      // Always show currently cached events immediately while waiting for Firestore.
+      controller.add(List<EventLog>.unmodifiable(_eventLogs));
+
+      final subscription = _eventLogCollection
+          .snapshots()
+          .listen(
+        (snapshot) {
+          final events = snapshot.docs.map((doc) => EventLog.fromFirestore(doc)).toList()
+            ..sort((a, b) => b.dateTimeTaken.compareTo(a.dateTimeTaken));
           _eventLogs
             ..clear()
             ..addAll(events);
-          _eventLogsController.add(List.unmodifiable(_eventLogs));
-          return events;
-        });
+          final latest = List<EventLog>.unmodifiable(_eventLogs);
+          _eventLogsController.add(latest);
+          controller.add(latest);
+        },
+        onError: (_) {
+          // Do not break the UI stream; continue showing the latest cached events.
+          controller.add(List<EventLog>.unmodifiable(_eventLogs));
+        },
+      );
+
+      controller.onCancel = () => subscription.cancel();
+    });
+  }
+
+  static Future<void> refreshEventLogsFromFirestore() async {
+    if (!_firestoreAvailable) {
+      _eventLogsController.add(List<EventLog>.unmodifiable(_eventLogs));
+      return;
+    }
+
+    final snapshot = await _eventLogCollection.get();
+    final events = snapshot.docs.map((doc) => EventLog.fromFirestore(doc)).toList()
+      ..sort((a, b) => b.dateTimeTaken.compareTo(a.dateTimeTaken));
+
+    _eventLogs
+      ..clear()
+      ..addAll(events);
+    _eventLogsController.add(List<EventLog>.unmodifiable(_eventLogs));
+  }
+
+  static Future<void> clearEventLogs() async {
+    _eventLogs.clear();
+    _eventLogsController.add(List<EventLog>.unmodifiable(_eventLogs));
+
+    if (!_firestoreAvailable) {
+      return;
+    }
+
+    const chunkSize = 400;
+    while (true) {
+      final snapshot = await _eventLogCollection.limit(chunkSize).get();
+      if (snapshot.docs.isEmpty) {
+        break;
+      }
+
+      final batch = _firestore.batch();
+      for (final doc in snapshot.docs) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+
+      if (snapshot.docs.length < chunkSize) {
+        break;
+      }
+    }
+  }
+
+  static Future<void> clearFilteredEventLogs(List<EventLog> eventsToClear) async {
+    if (eventsToClear.isEmpty) {
+      return;
+    }
+
+    final idSet = eventsToClear
+        .map((event) => event.id)
+        .whereType<String>()
+        .toSet();
+
+    final signatureSet = eventsToClear
+        .map((event) => _eventSignature(event))
+        .toSet();
+
+    _eventLogs.removeWhere((existing) {
+      final hasIdMatch = existing.id != null && idSet.contains(existing.id);
+      final hasSignatureMatch = signatureSet.contains(_eventSignature(existing));
+      return hasIdMatch || hasSignatureMatch;
+    });
+    _eventLogsController.add(List<EventLog>.unmodifiable(_eventLogs));
+
+    if (!_firestoreAvailable || idSet.isEmpty) {
+      return;
+    }
+
+    const chunkSize = 400;
+    final ids = idSet.toList(growable: false);
+    for (var i = 0; i < ids.length; i += chunkSize) {
+      final end = (i + chunkSize > ids.length) ? ids.length : i + chunkSize;
+      final batch = _firestore.batch();
+      for (final id in ids.sublist(i, end)) {
+        batch.delete(_eventLogCollection.doc(id));
+      }
+      await batch.commit();
+    }
+  }
+
+  static String _eventSignature(EventLog event) {
+    final takenMillis = event.dateTimeTaken.millisecondsSinceEpoch;
+    return '${event.action}|${event.keyId}|${event.status}|$takenMillis|${event.actor}';
+  }
+
+  static Future<bool> refreshAllFromFirestore() async {
+    if (!_firestoreAvailable) {
+      _keysController.add(List<KeyRecord>.unmodifiable(_keys));
+      _eventLogsController.add(List<EventLog>.unmodifiable(_eventLogs));
+      return false;
+    }
+
+    await Future.wait([
+      refreshKeysFromFirestore(),
+      refreshEventLogsFromFirestore(),
+    ]);
+    return true;
+  }
+
+  static List<KeyRecord> _dedupeKeysById(Iterable<KeyRecord> keys) {
+    final deduped = <String, KeyRecord>{};
+    for (final key in keys) {
+      final identity = _dedupeIdentity(key);
+      final existing = deduped[identity];
+      if (existing == null) {
+        deduped[identity] = key;
+        continue;
+      }
+
+      final existingActive = _isActiveStatus(existing.status);
+      final currentActive = _isActiveStatus(key.status);
+
+      if (!existingActive && currentActive) {
+        deduped[identity] = key;
+        continue;
+      }
+
+      if (existingActive == currentActive && key.takenAt.isAfter(existing.takenAt)) {
+        deduped[identity] = key;
+      }
+    }
+    return deduped.values.toList(growable: false);
   }
 
   static List<KeyRecord> get availableKeys {
@@ -524,14 +736,21 @@ class KeyRecordRepository {
         continue;
       }
 
+      final purposeValue = effectiveMetadata['purpose']?.toString().trim().isNotEmpty == true
+          ? effectiveMetadata['purpose'].toString().trim()
+          : (_keys[index].purpose.isEmpty ? 'Routine access' : _keys[index].purpose);
+      final mergedMetadata = Map<String, dynamic>.from(_keys[index].metadata)
+        ..addAll(effectiveMetadata);
+
       _keys[index] = _keys[index].copyWith(
         status: isHandOver ? 'Hand Over' : 'In Use',
         borrowerName: borrower.name,
         icPassport: borrower.icPassport,
         phoneNumber: borrower.phone,
         company: borrower.company,
-        purpose: _keys[index].purpose.isEmpty ? 'Routine access' : _keys[index].purpose,
+        purpose: purposeValue,
         takenAt: takenAt,
+        metadata: mergedMetadata,
       );
       final event = EventLog(
         action: isHandOver ? 'Key Handed Over' : 'Key Taken - In Use',
@@ -541,7 +760,7 @@ class KeyRecordRepository {
         icPassport: borrower.icPassport,
         phoneNumber: borrower.phone,
         company: borrower.company,
-        purpose: _keys[index].purpose.isEmpty ? 'Routine access' : _keys[index].purpose,
+        purpose: purposeValue,
         dateTimeTaken: takenAt,
         dateTimeReturned: null,
         status: isHandOver ? 'Hand Over' : 'In Use',
@@ -757,42 +976,25 @@ class KeyRecordRepository {
   }
 
   static Future<void> _updateReturnEvent(KeyRecord record) async {
-    final eventIndex = _eventLogs.indexWhere((event) =>
-        event.keyId == record.keyId &&
-        event.dateTimeReturned == null &&
-        event.status == 'In Use');
-
-    if (eventIndex == -1) {
-      final returnEvent = EventLog(
-        action: 'Returned',
-        keyId: record.keyId,
-        keyName: record.keyName,
-        borrowerName: record.borrowerName,
-        icPassport: record.icPassport,
-        phoneNumber: record.phoneNumber,
-        company: record.company,
-        purpose: record.purpose,
-        dateTimeTaken: record.takenAt,
-        dateTimeReturned: DateTime.now(),
-        status: 'Returned',
-        lose: false,
-        actor: 'Security Admin',
-      );
-      await _appendEvent(returnEvent);
-      return;
-    }
-
-    final updated = _eventLogs[eventIndex].copyWith(
-      dateTimeReturned: DateTime.now(),
-      status: 'Returned',
+    final returnedAt = DateTime.now();
+    final returnEvent = EventLog(
       action: 'Returned',
+      keyId: record.keyId,
+      keyName: record.keyName,
+      borrowerName: record.borrowerName,
+      icPassport: record.icPassport,
+      phoneNumber: record.phoneNumber,
+      company: record.company,
+      purpose: record.purpose,
+      dateTimeTaken: returnedAt,
+      dateTimeReturned: returnedAt,
+      status: 'Returned',
+      lose: false,
+      actor: 'Security Admin',
+      category: record.category,
+      metadata: record.metadata,
     );
-    _eventLogs[eventIndex] = updated;
-    _eventLogsController.add(List.unmodifiable(_eventLogs));
-
-    if (_firestoreAvailable) {
-      await _updateEventLog(updated).catchError((_) {});
-    }
+    await _appendEvent(returnEvent);
   }
 
   static Future<void> registerNewKey({
@@ -820,7 +1022,13 @@ class KeyRecordRepository {
       metadata: metadata ?? const {},
     );
 
-    _keys.add(key);
+    final normalizedNewId = _normalizeKeyId(keyId);
+    final existingIndex = _keys.indexWhere((item) => _normalizeKeyId(item.keyId) == normalizedNewId);
+    if (existingIndex == -1) {
+      _keys.add(key);
+    } else {
+      _keys[existingIndex] = key;
+    }
     _keysController.add(List.unmodifiable(_keys));
 
     final event = EventLog(
@@ -855,6 +1063,132 @@ class KeyRecordRepository {
         audience: 'allMembers',
       ).catchError((_) {});
     }
+  }
+
+  static Future<void> updateRegisteredKeyDetails({
+    required String keyId,
+    required String zone,
+    required String keyName,
+    required String category,
+    required String status,
+    required String recordedBy,
+    Map<String, dynamic>? metadata,
+  }) async {
+    final index = _keys.indexWhere((key) => key.keyId == keyId);
+    KeyRecord? updatedRecord;
+
+    if (index != -1) {
+      final previous = _keys[index];
+      final mergedMetadata = metadata ?? previous.metadata;
+      final normalizedStatus = status.isEmpty ? previous.status : status;
+      final purposeValue = mergedMetadata['purpose']?.toString() ?? previous.purpose;
+
+      _keys[index] = previous.copyWith(
+        zone: zone,
+        keyName: keyName,
+        category: category,
+        status: normalizedStatus,
+        purpose: purposeValue,
+        metadata: mergedMetadata,
+      );
+      updatedRecord = _keys[index];
+
+      _keysController.add(List.unmodifiable(_keys));
+
+      final event = EventLog(
+        action: 'Key Details Edited',
+        keyId: updatedRecord.keyId,
+        keyName: updatedRecord.keyName,
+        borrowerName: updatedRecord.borrowerName,
+        icPassport: updatedRecord.icPassport,
+        phoneNumber: updatedRecord.phoneNumber,
+        company: updatedRecord.company,
+        purpose: updatedRecord.purpose,
+        dateTimeTaken: DateTime.now(),
+        dateTimeReturned: null,
+        status: updatedRecord.status,
+        lose: false,
+        actor: recordedBy,
+        category: updatedRecord.category,
+        metadata: mergedMetadata,
+      );
+      await _appendEvent(event);
+    }
+
+    if (_firestoreAvailable) {
+      if (updatedRecord != null) {
+        await _saveKey(updatedRecord).catchError((_) {});
+      } else {
+        final mergedMetadata = metadata ?? const <String, dynamic>{};
+        await _keysCollection.doc(_keyDocId(keyId)).set({
+          'keyId': keyId,
+          'zone': zone,
+          'keyName': keyName,
+          'category': category,
+          'status': status,
+          'purpose': mergedMetadata['purpose']?.toString() ?? '',
+          'metadata': mergedMetadata,
+          'takenAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true)).catchError((_) {});
+      }
+
+      await _saveNotification(
+        title: 'Key Details Updated',
+        body: 'Key "$keyName" details were updated by $recordedBy.',
+        keyId: keyId,
+        category: category,
+        recordedBy: recordedBy,
+        audience: 'allMembers',
+      ).catchError((_) {});
+    }
+
+    _notifyKeys();
+  }
+
+  static Future<void> deleteKey(
+    KeyRecord record, {
+    String recordedBy = 'Security Admin',
+  }) async {
+    final index = _keys.indexWhere((key) => key.keyId == record.keyId);
+    if (index == -1) {
+      return;
+    }
+
+    final deleted = _keys.removeAt(index);
+    _keysController.add(List.unmodifiable(_keys));
+
+    final event = EventLog(
+      action: 'Key Deleted',
+      keyId: deleted.keyId,
+      keyName: deleted.keyName,
+      borrowerName: deleted.borrowerName,
+      icPassport: deleted.icPassport,
+      phoneNumber: deleted.phoneNumber,
+      company: deleted.company,
+      purpose: deleted.purpose,
+      dateTimeTaken: DateTime.now(),
+      dateTimeReturned: null,
+      status: 'Deleted',
+      lose: false,
+      actor: recordedBy,
+      category: deleted.category,
+      metadata: deleted.metadata,
+    );
+    await _appendEvent(event);
+
+    if (_firestoreAvailable) {
+      await _keysCollection.doc(_keyDocId(deleted.keyId)).delete().catchError((_) {});
+      await _saveNotification(
+        title: 'Key Deleted',
+        body: 'Key ${deleted.zone}/${deleted.keyName} was deleted by $recordedBy.',
+        keyId: deleted.keyId,
+        category: deleted.category,
+        recordedBy: recordedBy,
+        audience: 'allMembers',
+      ).catchError((_) {});
+    }
+
+    _notifyKeys();
   }
 
   static void _notifyKeys() {

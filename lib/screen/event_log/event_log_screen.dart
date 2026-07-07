@@ -14,25 +14,15 @@ class EventLogScreen extends StatefulWidget {
 
 class _EventLogScreenState extends State<EventLogScreen> {
   final TextEditingController _searchController = TextEditingController();
+  final Stream<List<EventLog>> _eventsStream = KeyRecordRepository.watchEventLogs();
+
   String _statusFilter = 'All';
-  int? _sortColumnIndex;
-  bool _sortAscending = true;
-  int _rowsPerPage = PaginatedDataTable.defaultRowsPerPage;
+  DateTime? _fromDate;
+  DateTime? _toDate;
+
   List<EventLog> _latestEvents = const [];
 
-  static const List<String> _statusOptions = [
-    'All',
-    'In Use',
-    'Still Out',
-    'Returned',
-    'Lost',
-    'No Return',
-    'At Maintenance',
-    'Hand Over',
-    'Damaged',
-    'Replaced',
-    'New Key Registered',
-  ];
+  static const List<String> _statusOptions = ['All', 'Still Out', 'Returned', 'Lost'];
 
   @override
   void dispose() {
@@ -46,7 +36,7 @@ class _EventLogScreenState extends State<EventLogScreen> {
       backgroundColor: const Color(0xFFF4F6F8),
       appBar: AppBar(
         leading: IconButton(
-          onPressed: _goBack,
+          onPressed: () => Navigator.of(context).maybePop(),
           icon: const Icon(Icons.arrow_back),
           tooltip: 'Back',
         ),
@@ -55,6 +45,21 @@ class _EventLogScreenState extends State<EventLogScreen> {
         foregroundColor: Colors.white,
         actions: [
           IconButton(
+            onPressed: _clearFilteredLogs,
+            icon: const Icon(Icons.filter_alt_off_outlined),
+            tooltip: 'Clear Filtered',
+          ),
+          IconButton(
+            onPressed: _clearLogs,
+            icon: const Icon(Icons.delete_sweep_outlined),
+            tooltip: 'Clear Log',
+          ),
+          IconButton(
+            onPressed: _refreshLogs,
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh from Firestore',
+          ),
+          IconButton(
             onPressed: _exportCsv,
             icon: const Icon(Icons.download),
             tooltip: 'Export CSV',
@@ -62,67 +67,93 @@ class _EventLogScreenState extends State<EventLogScreen> {
         ],
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              StreamBuilder<List<EventLog>>(
-                stream: KeyRecordRepository.watchEventLogs(),
-                builder: (context, snapshot) {
-                  final events = snapshot.data ?? const [];
-                  _latestEvents = events;
-                  return _buildProgressCard(events);
-                },
+        child: StreamBuilder<List<EventLog>>(
+          stream: _eventsStream,
+          builder: (context, snapshot) {
+            final events = snapshot.data ?? const [];
+            _latestEvents = events;
+
+            if (snapshot.connectionState == ConnectionState.waiting && events.isEmpty) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            final filteredEvents = _filterEvents(events);
+            final sortedEvents = _sortEvents(filteredEvents);
+
+            return Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  _buildWhatsNewCard(sortedEvents),
+                  const SizedBox(height: 12),
+                  _buildFilterRow(context),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: sortedEvents.isEmpty
+                        ? const Center(child: Text('No matching event logs found.'))
+                        : _buildSimpleList(sortedEvents),
+                  ),
+                ],
               ),
-              const SizedBox(height: 12),
-              _buildFilterRow(context),
-              const SizedBox(height: 12),
-              Expanded(
-                child: StreamBuilder<List<EventLog>>(
-                  stream: KeyRecordRepository.watchEventLogs(),
-                  builder: (context, snapshot) {
-                    final events = snapshot.data ?? const [];
-                    _latestEvents = events;
-                    if (snapshot.connectionState == ConnectionState.waiting && events.isEmpty) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-
-                    final filteredEvents = _filterEvents(events);
-                    final sortedEvents = _sortEvents(filteredEvents);
-
-                    if (sortedEvents.isEmpty) {
-                      return const Center(child: Text('No matching event logs found.'));
-                    }
-
-                    return _buildPaginatedTable(sortedEvents);
-                  },
-                ),
-              ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
   }
 
-  void _goBack() {
-    Future<void>.microtask(() {
-      if (!mounted) return;
-      Navigator.of(context).maybePop();
-    });
+  Widget _buildWhatsNewCard(List<EventLog> events) {
+    final latest = events.isEmpty ? null : events.first;
+    final latestAction = latest == null ? 'No new updates yet. Your log is all caught up.' : _buildSimpleMessage(latest);
+    final latestTime = latest == null ? '' : _formatDateTime(latest.dateTimeTaken);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE0E5E8)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'What\'s New',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          if (latestTime.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              latestTime,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.black45,
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+          ],
+          const SizedBox(height: 6),
+          Text(
+            latestAction,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.black54),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildFilterRow(BuildContext context) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
           children: [
             Expanded(
               child: TextField(
                 controller: _searchController,
+                onChanged: (_) => setState(() {}),
                 decoration: InputDecoration(
-                  labelText: 'Search by key, name, IC, company, or date',
+                  labelText: 'Search by Key, Name, I/C, Company, or Date',
+                  hintText: 'Type key, name, I/C, company, or date',
                   prefixIcon: const Icon(Icons.search),
                   filled: true,
                   fillColor: Colors.white,
@@ -131,7 +162,6 @@ class _EventLogScreenState extends State<EventLogScreen> {
                     borderSide: const BorderSide(color: Color(0xFFE0E5E8)),
                   ),
                 ),
-                onChanged: (_) => setState(() {}),
               ),
             ),
             const SizedBox(width: 12),
@@ -147,74 +177,67 @@ class _EventLogScreenState extends State<EventLogScreen> {
             ),
           ],
         ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            OutlinedButton.icon(
+              onPressed: () => _pickDate(isFrom: true),
+              icon: const Icon(Icons.date_range),
+              label: Text(_fromDate == null ? 'From Date' : _formatDate(_fromDate!)),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: () => _pickDate(isFrom: false),
+              icon: const Icon(Icons.date_range_outlined),
+              label: Text(_toDate == null ? 'To Date' : _formatDate(_toDate!)),
+            ),
+            const SizedBox(width: 8),
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  _fromDate = null;
+                  _toDate = null;
+                });
+              },
+              child: const Text('Clear Date Range'),
+            ),
+          ],
+        ),
       ],
     );
   }
 
-  Widget _buildProgressCard(List<EventLog> events) {
-    final total = events.length;
-    final inUse = events.where((event) => event.status == 'In Use').length;
-    final returned = events.where((event) => event.status == 'Returned').length;
-    final lost = events.where((event) => event.status == 'Lost').length;
-    final noReturn = events.where((event) => event.status == 'No Return').length;
-    final maintenance = events.where((event) => event.status == 'At Maintenance').length;
-    final handOver = events.where((event) => event.status == 'Hand Over').length;
-    final damaged = events.where((event) => event.status == 'Damaged').length;
-    final replaced = events.where((event) => event.status == 'Replaced').length;
-    final latestAction = events.isEmpty ? 'No reports yet' : events.first.action;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE0E5E8)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Report Progress',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Live progression from Firestore event log records.',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.black54),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _SummaryChip(label: 'Total', value: total.toString()),
-              _SummaryChip(label: 'In Use', value: inUse.toString()),
-              _SummaryChip(label: 'Returned', value: returned.toString()),
-              _SummaryChip(label: 'Lost', value: lost.toString()),
-              _SummaryChip(label: 'No Return', value: noReturn.toString()),
-              _SummaryChip(label: 'At Maintenance', value: maintenance.toString()),
-              _SummaryChip(label: 'Hand Over', value: handOver.toString()),
-              _SummaryChip(label: 'Damaged', value: damaged.toString()),
-              _SummaryChip(label: 'Replaced', value: replaced.toString()),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Latest update: $latestAction',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
-          ),
-        ],
-      ),
+  Future<void> _pickDate({required bool isFrom}) async {
+    final initial = isFrom ? (_fromDate ?? DateTime.now()) : (_toDate ?? DateTime.now());
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
     );
+    if (picked == null) return;
+    setState(() {
+      if (isFrom) {
+        _fromDate = DateTime(picked.year, picked.month, picked.day);
+      } else {
+        _toDate = DateTime(picked.year, picked.month, picked.day, 23, 59, 59);
+      }
+    });
   }
 
   List<EventLog> _filterEvents(List<EventLog> events) {
     final query = _searchController.text.trim().toLowerCase();
+
     return events.where((event) {
-      if (_statusFilter != 'All') {
-        final statusMatch = _matchesStatusFilter(event);
-        if (!statusMatch) return false;
+      if (_statusFilter != 'All' && !_matchesStatusFilter(event)) {
+        return false;
+      }
+
+      if (_fromDate != null && event.dateTimeTaken.isBefore(_fromDate!)) {
+        return false;
+      }
+      if (_toDate != null && event.dateTimeTaken.isAfter(_toDate!)) {
+        return false;
       }
 
       if (query.isEmpty) {
@@ -222,15 +245,12 @@ class _EventLogScreenState extends State<EventLogScreen> {
       }
 
       final tokens = <String>[
-        event.action,
-        event.keyId,
-        event.keyName,
+        _displayKey(event),
         event.borrowerName,
         event.icPassport,
         event.company,
-        event.purpose,
+        _formatDate(event.dateTimeTaken),
         _formatDateTime(event.dateTimeTaken),
-        event.dateTimeReturned == null ? '' : _formatDateTime(event.dateTimeReturned!),
       ];
       return tokens.any((token) => token.toLowerCase().contains(query));
     }).toList();
@@ -241,143 +261,70 @@ class _EventLogScreenState extends State<EventLogScreen> {
       case 'Still Out':
         return event.status == 'In Use' ||
             event.status == 'No Return' ||
-            event.status == 'At Maintenance';
-      case 'In Use':
-        return event.status == 'In Use';
+            event.status == 'At Maintenance' ||
+            event.status == 'Hand Over';
       case 'Returned':
         return event.status == 'Returned';
       case 'Lost':
         return event.status == 'Lost';
-      case 'No Return':
-        return event.status == 'No Return';
-      case 'At Maintenance':
-        return event.status == 'At Maintenance';
-      case 'Hand Over':
-        return event.status == 'Hand Over';
-      case 'Damaged':
-        return event.status == 'Damaged';
-      case 'Replaced':
-        return event.status == 'Replaced';
-      case 'New Key Registered':
-        return event.action == 'New Key Registered';
       default:
         return true;
     }
   }
 
   List<EventLog> _sortEvents(List<EventLog> events) {
-    if (_sortColumnIndex == null) {
-      return events;
-    }
-
-    final sorted = List<EventLog>.from(events);
-    sorted.sort((a, b) {
-      int compare;
-      switch (_sortColumnIndex) {
-        case 0:
-          compare = a.keyId.compareTo(b.keyId);
-          break;
-        case 1:
-          compare = a.borrowerName.compareTo(b.borrowerName);
-          break;
-        case 2:
-          compare = a.icPassport.compareTo(b.icPassport);
-          break;
-        case 3:
-          compare = a.phoneNumber.compareTo(b.phoneNumber);
-          break;
-        case 4:
-          compare = a.company.compareTo(b.company);
-          break;
-        case 5:
-          compare = a.purpose.compareTo(b.purpose);
-          break;
-        case 6:
-          compare = a.dateTimeTaken.compareTo(b.dateTimeTaken);
-          break;
-        case 7:
-          compare = _safeDateTime(a.dateTimeReturned).compareTo(_safeDateTime(b.dateTimeReturned));
-          break;
-        case 8:
-          compare = a.lose.toString().compareTo(b.lose.toString());
-          break;
-        case 9:
-          compare = a.actor.compareTo(b.actor);
-          break;
-        default:
-          compare = 0;
-      }
-      return _sortAscending ? compare : -compare;
-    });
+    final sorted = List<EventLog>.from(events)
+      ..sort((a, b) => b.dateTimeTaken.compareTo(a.dateTimeTaken));
     return sorted;
   }
 
-  DateTime _safeDateTime(DateTime? value) => value ?? DateTime.fromMillisecondsSinceEpoch(0);
-
-  Widget _buildPaginatedTable(List<EventLog> events) {
-    final columns = [
-      _buildColumn('Key', 0),
-      _buildColumn('Name', 1),
-      _buildColumn('I/C', 2),
-      _buildColumn('Phone No', 3),
-      _buildColumn('Company', 4),
-      _buildColumn('Purpose', 5),
-      _buildColumn('Taken', 6),
-      _buildColumn('Returned', 7),
-      _buildColumn('Lose', 8),
-      _buildColumn('Actor', 9),
-    ];
-
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minWidth: 1200),
-        child: PaginatedDataTable(
-          header: const Text('Filtered Event Log'),
-          columns: columns,
-          source: EventLogDataSource(events, _formatDateTime),
-          rowsPerPage: _rowsPerPage,
-          availableRowsPerPage: const [5, 10, 15, 20],
-          onRowsPerPageChanged: (value) {
-            if (value == null) return;
-            setState(() => _rowsPerPage = value);
-          },
-          sortColumnIndex: _sortColumnIndex,
-          sortAscending: _sortAscending,
-          showCheckboxColumn: false,
-        ),
-      ),
-    );
-  }
-
-  DataColumn _buildColumn(String label, int columnIndex) {
-    return DataColumn(
-      label: Text(label),
-      onSort: (index, ascending) => setState(() {
-        _sortColumnIndex = columnIndex;
-        _sortAscending = ascending;
-      }),
+  Widget _buildSimpleList(List<EventLog> events) {
+    return ListView.separated(
+      itemCount: events.length,
+      separatorBuilder: (_, index) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        final event = events[index];
+        final sentence = _buildSimpleMessage(event);
+        return Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: index == 0 ? const Color(0xFFE8F3F1) : Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFE0E5E8)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _formatDateTime(event.dateTimeTaken),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Colors.black54,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                sentence,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
   Future<void> _exportCsv() async {
-    final events = _filterEvents(_latestEvents);
+    final events = _sortEvents(_filterEvents(_latestEvents));
     final csvBuffer = StringBuffer();
-    csvBuffer.writeln(
-      'Key,Name,I/C,Phone No,Company,Purpose,Date/Time Taken,Date/Time Returned,Lose,Actor',
-    );
-    for (final event in _sortEvents(events)) {
+    csvBuffer.writeln('Message,Date/Time');
+
+    for (final event in events) {
       final row = [
-        event.keyId,
-        event.borrowerName,
-        event.icPassport,
-        event.phoneNumber,
-        event.company,
-        event.purpose,
+        _buildSimpleMessage(event),
         _formatDateTime(event.dateTimeTaken),
-        event.dateTimeReturned == null ? '' : _formatDateTime(event.dateTimeReturned!),
-        event.lose ? 'Yes' : 'No',
-        event.actor,
       ].map(_escapeCsv).join(',');
       csvBuffer.writeln(row);
     }
@@ -398,6 +345,116 @@ class _EventLogScreenState extends State<EventLogScreen> {
     }
   }
 
+  Future<void> _refreshLogs() async {
+    try {
+      await KeyRecordRepository.refreshEventLogsFromFirestore();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Event log refreshed from Firestore.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Refresh failed: $error')),
+      );
+    }
+  }
+
+  Future<void> _clearLogs() async {
+    final shouldClear = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Clear Event Log'),
+          content: const Text('Delete all event logs? This cannot be undone.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFC62828),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Clear'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldClear != true) {
+      return;
+    }
+
+    try {
+      await KeyRecordRepository.clearEventLogs();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Event log cleared.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Clear log failed: $error')),
+      );
+    }
+  }
+
+  Future<void> _clearFilteredLogs() async {
+    final filtered = _sortEvents(_filterEvents(_latestEvents));
+    if (filtered.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No filtered logs to clear.')),
+      );
+      return;
+    }
+
+    final shouldClear = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Clear Filtered Logs'),
+          content: Text('Delete ${filtered.length} filtered log(s)? This cannot be undone.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFC62828),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Clear Filtered'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldClear != true) {
+      return;
+    }
+
+    try {
+      await KeyRecordRepository.clearFilteredEventLogs(filtered);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${filtered.length} filtered log(s) cleared.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Clear filtered logs failed: $error')),
+      );
+    }
+  }
+
   String _escapeCsv(String value) {
     if (value.contains(',') || value.contains('"') || value.contains('\n')) {
       final escaped = value.replaceAll('"', '""');
@@ -407,74 +464,76 @@ class _EventLogScreenState extends State<EventLogScreen> {
   }
 
   String _formatDateTime(DateTime value) {
-    return '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')} '
-        '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
-  }
-}
-
-class _SummaryChip extends StatelessWidget {
-  const _SummaryChip({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF7F9FA),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE0E5E8)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(color: Colors.black54),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class EventLogDataSource extends DataTableSource {
-  EventLogDataSource(this.events, this.formatDateTime);
-
-  final List<EventLog> events;
-  final String Function(DateTime) formatDateTime;
-
-  @override
-  DataRow getRow(int index) {
-    final event = events[index];
-    return DataRow(cells: [
-      DataCell(Text(event.keyId)),
-      DataCell(Text(event.borrowerName)),
-      DataCell(Text(event.icPassport)),
-      DataCell(Text(event.phoneNumber)),
-      DataCell(Text(event.company)),
-      DataCell(Text(event.purpose)),
-      DataCell(Text(formatDateTime(event.dateTimeTaken))),
-      DataCell(Text(event.dateTimeReturned == null ? '-' : formatDateTime(event.dateTimeReturned!))),
-      DataCell(Text(event.lose ? 'Yes' : 'No')),
-      DataCell(Text(event.actor)),
-    ]);
+    return '${_formatDate(value)} ${_formatTime(value)}';
   }
 
-  @override
-  bool get isRowCountApproximate => false;
+  String _formatDate(DateTime value) {
+    return '${value.day.toString().padLeft(2, '0')}/${value.month.toString().padLeft(2, '0')}/${value.year}';
+  }
 
-  @override
-  int get rowCount => events.length;
+  String _formatTime(DateTime value) {
+    return '${value.hour.toString().padLeft(2, '0')}${value.minute.toString().padLeft(2, '0')}hrs';
+  }
 
-  @override
-  int get selectedRowCount => 0;
+  String _displayKey(EventLog event) {
+    final category = event.category.trim().toLowerCase();
+    final rollerNo = event.metadata['rollerNumber']?.toString().trim() ?? '';
+    final rollerLevelNo = event.metadata['rollerLevelNo']?.toString().trim() ?? '';
+
+    if (category == 'roller shutter' || rollerNo.isNotEmpty || rollerLevelNo.isNotEmpty) {
+      var level = event.metadata['level']?.toString().trim() ?? '';
+      var number = rollerNo;
+
+      if ((level.isEmpty || number.isEmpty) && rollerLevelNo.contains('/')) {
+        final parts = rollerLevelNo.split('/');
+        if (parts.isNotEmpty && level.isEmpty) {
+          level = parts.first.trim();
+        }
+        if (parts.length > 1 && number.isEmpty) {
+          number = parts[1].trim();
+        }
+      }
+
+      if (level.isNotEmpty && number.isNotEmpty) {
+        return 'Roller Shutter $level/$number';
+      }
+      if (number.isNotEmpty) {
+        return 'Roller Shutter $number';
+      }
+      if (level.isNotEmpty) {
+        return 'Roller Shutter $level';
+      }
+    }
+
+    final level = event.metadata['level']?.toString().trim() ?? '';
+    final zone = event.metadata['zone']?.toString().trim() ?? '';
+    if (level.isNotEmpty && zone.isNotEmpty) {
+      return '$level/$zone';
+    }
+    return event.keyId.isNotEmpty ? event.keyId : event.keyName;
+  }
+
+  String _buildSimpleMessage(EventLog event) {
+    final key = _displayKey(event).toUpperCase();
+    final actor = event.actor.trim().isEmpty ? 'member' : event.actor;
+
+    if (event.action == 'New Key Registered') {
+      return 'New Key added: $key by "$actor".';
+    }
+
+    if (event.status == 'In Use' || event.action.contains('Taken')) {
+      final borrower = event.borrowerName.trim().isEmpty ? 'member' : event.borrowerName;
+      return 'Key $key borrowed by "$borrower".';
+    }
+
+    if (event.status == 'Lost' || event.action == 'Lost') {
+      return 'Heads up: key $key is now marked as Lost.';
+    }
+
+    if (event.status == 'Returned' || event.action == 'Returned') {
+      return 'Nice, key $key has been returned.';
+    }
+
+    return '${event.action} - key $key by "$actor".';
+  }
 }

@@ -5,7 +5,9 @@ import '../../services/auth_service.dart';
 import '../../services/key_repository.dart' as repository;
 
 class RegisterScreen extends StatefulWidget {
-  const RegisterScreen({super.key});
+  const RegisterScreen({super.key, this.initialKeyId});
+
+  final String? initialKeyId;
 
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
@@ -13,27 +15,30 @@ class RegisterScreen extends StatefulWidget {
 
 class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _keySearchController = TextEditingController();
+  TextEditingController? _keySearchFieldController;
   final _nameController = TextEditingController();
   final _icController = TextEditingController();
   final _phoneController = TextEditingController();
   final _companyController = TextEditingController();
   final _departmentController = TextEditingController();
   final _purposeController = TextEditingController();
+  final _remarksController = TextEditingController();
   final _documentReportNoController = TextEditingController();
   final _handoverByController = TextEditingController();
   final _receivedByController = TextEditingController();
   final _witnessesByController = TextEditingController();
+  final _handoverDateController = TextEditingController();
+  final _handoverTimeController = TextEditingController();
   final _handoverDialogFormKey = GlobalKey<FormState>();
   final List<AvailableKey> _selectedKeys = [];
   final List<Borrower> _savedBorrowers = List<Borrower>.from(
     _savedBorrowerStore,
   );
-  late DateTime _timeTaken;
+  late DateTime _now;
   late Timer _clockTimer;
   bool _saveBorrower = true;
-  Borrower? _selectedBorrower;
   AvailableKey? _selectedKeyFromSearch;
+  bool _initialKeyHandled = false;
   String _borrowerCategory = 'Staff';
   String _takeStatus = 'In Use';
   static const List<String> _borrowerCategories = [
@@ -49,12 +54,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   void initState() {
     super.initState();
-    _timeTaken = DateTime.now();
+    _now = DateTime.now();
     _handoverByController.text =
         AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin';
+    _handoverDateController.text = _formatDateOnly(_now);
+    _handoverTimeController.text = _formatTimeOnly(_now);
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) {
-        setState(() => _timeTaken = DateTime.now());
+        setState(() => _now = DateTime.now());
       }
     });
   }
@@ -62,16 +69,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   void dispose() {
     _clockTimer.cancel();
-    _keySearchController.dispose();
     _nameController.dispose();
     _icController.dispose();
     _phoneController.dispose();
     _companyController.dispose();
+    _departmentController.dispose();
     _purposeController.dispose();
+    _remarksController.dispose();
     _documentReportNoController.dispose();
     _handoverByController.dispose();
     _receivedByController.dispose();
     _witnessesByController.dispose();
+    _handoverDateController.dispose();
+    _handoverTimeController.dispose();
     super.dispose();
   }
 
@@ -99,8 +109,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       stream: repository.KeyRecordRepository.watchAllKeys(),
                       builder: (context, snapshot) {
                         final allKeys = snapshot.data ?? const [];
+                        final selectedIds = _selectedKeys.map((item) => item.keyId).toSet();
                         final availableKeys = allKeys
-                            .where((key) => key.status == 'Available')
+                            .where((key) => key.status == 'Available' && !selectedIds.contains(key.keyId))
                             .map((record) => AvailableKey(
                                   keyId: record.keyId,
                                   zone: record.zone,
@@ -108,6 +119,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                   status: record.status,
                                 ))
                             .toList();
+
+                        _tryAutoAddInitialKey(availableKeys);
 
                         return Autocomplete<AvailableKey>(
                           displayStringForOption: (key) =>
@@ -127,14 +140,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           },
                           onSelected: (key) {
                             _selectedKeyFromSearch = key;
-                            _keySearchController.text = '${key.zone} / ${key.name}';
                           },
                           fieldViewBuilder:
                               (context, controller, focusNode, onSubmitted) {
-                            if (_keySearchController.text.isNotEmpty &&
-                                controller.text != _keySearchController.text) {
-                              controller.text = _keySearchController.text;
-                            }
+                            _keySearchFieldController = controller;
 
                             return TextFormField(
                               controller: controller,
@@ -142,6 +151,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               decoration: _inputDecoration(
                                 'Search key by zone, name, or key ID',
                                 Icons.search,
+                                hint: 'Type key ID, level, zone, or name',
                               ),
                               onChanged: (_) => _selectedKeyFromSearch = null,
                             );
@@ -236,37 +246,44 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         if (value != null) {
                           setState(() {
                             _borrowerCategory = value;
-                            _selectedBorrower = null;
                           });
                         }
                       },
                     ),
                     const SizedBox(height: 12),
-                    DropdownButtonFormField<Borrower>(
-                      initialValue: _selectedBorrower,
-                      decoration: _inputDecoration(
-                        _borrowerCategory == 'Staff'
-                            ? 'Staff Name dropdown (optional)'
-                            : 'Name dropdown (optional)',
-                        Icons.person_outline,
-                      ),
-                      items: _savedBorrowers.map((borrower) {
-                        return DropdownMenuItem(
-                          value: borrower,
-                          child: Text(borrower.name),
+                    Autocomplete<Borrower>(
+                      displayStringForOption: (option) => option.name,
+                      optionsBuilder: (value) {
+                        final query = value.text.trim().toLowerCase();
+                        if (query.isEmpty) {
+                          return const Iterable<Borrower>.empty();
+                        }
+                        return _savedBorrowers.where((borrower) {
+                          return borrower.name.toLowerCase().contains(query);
+                        });
+                      },
+                      onSelected: _selectBorrower,
+                      fieldViewBuilder: (context, controller, focusNode, onSubmitted) {
+                        if (_nameController.text.isNotEmpty && controller.text != _nameController.text) {
+                          controller.text = _nameController.text;
+                        }
+                        return TextFormField(
+                          controller: controller,
+                          focusNode: focusNode,
+                          textInputAction: TextInputAction.next,
+                          decoration: _inputDecoration(
+                            _borrowerCategory == 'Staff' ? 'Staff Name' : 'Name',
+                            Icons.badge_outlined,
+                            hint: _borrowerCategory == 'Staff'
+                                ? 'Start typing staff name'
+                                : 'Start typing name',
+                          ),
+                          validator: _required,
+                          onChanged: (value) {
+                            _nameController.text = value;
+                          },
                         );
-                      }).toList(),
-                      onChanged: _selectBorrower,
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _nameController,
-                      textInputAction: TextInputAction.next,
-                      decoration: _inputDecoration(
-                        _borrowerCategory == 'Staff' ? 'Staff Name' : 'Name',
-                        Icons.badge_outlined,
-                      ),
-                      validator: _required,
+                      },
                     ),
                     const SizedBox(height: 12),
                     if (_borrowerCategory == 'Others') ...[
@@ -327,6 +344,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       validator: _required,
                     ),
                     const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _remarksController,
+                      minLines: 2,
+                      maxLines: 3,
+                      decoration: _inputDecoration(
+                        'Remarks',
+                        Icons.message_outlined,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
                       initialValue: _takeStatus,
                       decoration: _inputDecoration('Status', Icons.info_outline),
@@ -380,7 +407,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       decoration: _inputDecoration(
                         'Date / Time Taken',
                         Icons.schedule,
-                      ).copyWith(hintText: _formatDateTime(_timeTaken)),
+                        hint: _formatDateTime(_now),
+                      ),
                     ),
                   ],
                 ),
@@ -427,20 +455,45 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() {
       _selectedKeys.add(selected);
       _selectedKeyFromSearch = null;
-      _keySearchController.clear();
+      _keySearchFieldController?.clear();
     });
   }
 
-  void _selectBorrower(Borrower? borrower) {
-    setState(() {
-      _selectedBorrower = borrower;
-      if (borrower != null) {
-        _nameController.text = borrower.name;
-        _icController.text = borrower.icPassport;
-        _phoneController.text = borrower.phone;
-        _companyController.text = borrower.company;
-        _departmentController.text = borrower.department;
+  void _tryAutoAddInitialKey(List<AvailableKey> availableKeys) {
+    final initialKeyId = widget.initialKeyId;
+    if (_initialKeyHandled || initialKeyId == null || initialKeyId.trim().isEmpty) {
+      return;
+    }
+
+    final index = availableKeys.indexWhere((key) => key.keyId == initialKeyId);
+    if (index == -1) {
+      return;
+    }
+
+    _initialKeyHandled = true;
+    final key = availableKeys[index];
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
       }
+      if (_selectedKeys.any((selected) => selected.keyId == key.keyId)) {
+        return;
+      }
+      setState(() {
+        _selectedKeys.add(key);
+        _selectedKeyFromSearch = null;
+        _keySearchFieldController?.clear();
+      });
+    });
+  }
+
+  void _selectBorrower(Borrower borrower) {
+    setState(() {
+      _nameController.text = borrower.name;
+      _icController.text = borrower.icPassport;
+      _phoneController.text = borrower.phone;
+      _companyController.text = borrower.company;
+      _departmentController.text = borrower.department;
     });
   }
 
@@ -455,10 +508,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
 
     final borrowerName = _nameController.text.trim();
+    final takenAt = _takeStatus == 'Hand Over' ? _parseHandoverDateTime() : _now;
+    if (takenAt == null) {
+      _showMessage('Please enter a valid handover date and time.');
+      return;
+    }
     final selectedRecords = _selectedKeys
-        .map((selected) => repository.KeyRecordRepository.availableKeys
-            .firstWhere((record) => record.keyId == selected.keyId))
+        .map((selected) => repository.KeyRecordRepository.searchKeys(selected.keyId)
+            .where((record) => record.keyId == selected.keyId)
+            .toList())
+        .where((matches) => matches.isNotEmpty)
+        .map((matches) => matches.first)
         .toList();
+    if (selectedRecords.length != _selectedKeys.length) {
+      _showMessage('One or more selected keys are no longer available. Please reselect keys.');
+      return;
+    }
     final borrower = repository.Borrower(
       name: borrowerName,
       icPassport: _icController.text.trim(),
@@ -479,17 +544,25 @@ class _RegisterScreenState extends State<RegisterScreen> {
     await repository.KeyRecordRepository.takeKeys(
       selectedRecords,
       borrower,
-      _timeTaken,
+      takenAt,
       recordedBy: recordedBy,
       transactionStatus: _takeStatus,
-      metadata: isHandOver
-          ? {
-              'documentReportNo': _documentReportNoController.text.trim(),
-              'handoverBy': _handoverByController.text.trim(),
-              'receivedBy': _receivedByController.text.trim(),
-              'witnessesBy': _witnessesByController.text.trim(),
-            }
-          : const {},
+      metadata: {
+        'borrowerCategory': _borrowerCategory,
+        'staffName': _borrowerCategory == 'Staff' ? borrowerName : '',
+        'othersName': _borrowerCategory == 'Others' ? borrowerName : '',
+        'department': _departmentController.text.trim(),
+        'purpose': _purposeController.text.trim(),
+        'remarks': _remarksController.text.trim(),
+        if (isHandOver) ...{
+          'documentReportNo': _documentReportNoController.text.trim(),
+          'handoverBy': _handoverByController.text.trim(),
+          'receivedBy': _receivedByController.text.trim(),
+          'witnessesBy': _witnessesByController.text.trim(),
+          'handoverDate': _handoverDateController.text.trim(),
+          'handoverTime': _handoverTimeController.text.trim(),
+        },
+      },
     );
     if (!mounted) return;
 
@@ -497,13 +570,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
       'Keys: $keyLabels',
       'Borrower: $borrowerName',
       'Status: $_takeStatus',
+      if (_remarksController.text.trim().isNotEmpty)
+        'Remarks: ${_remarksController.text.trim()}',
       if (isHandOver) ...[
         'Document report no.: ${_documentReportNoController.text.trim()}',
         'Handover by: ${_handoverByController.text.trim()}',
         'Received by: ${_receivedByController.text.trim()}',
         'Witnesses by: ${_witnessesByController.text.trim()}',
       ],
-      'Time: ${_formatDateTime(_timeTaken)}',
+      'Time: ${_formatDateTime(takenAt)}',
       if (savedBorrower) 'Person saved for next time.',
     ];
 
@@ -556,6 +631,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
+                    controller: _handoverDateController,
+                    decoration: _inputDecoration(
+                      'Handover date',
+                      Icons.calendar_today,
+                      hint: 'YYYY-MM-DD',
+                    ),
+                    validator: _required,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _handoverTimeController,
+                    decoration: _inputDecoration(
+                      'Handover time',
+                      Icons.schedule,
+                      hint: 'HH:MM or HH:MM:SS',
+                    ),
+                    validator: _required,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
                     controller: _receivedByController,
                     decoration: _inputDecoration('Received by', Icons.person_add_alt_1_outlined),
                     validator: _required,
@@ -591,8 +686,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   bool _validateHandoverDetails() {
     return _documentReportNoController.text.trim().isNotEmpty &&
+        _handoverDateController.text.trim().isNotEmpty &&
+        _handoverTimeController.text.trim().isNotEmpty &&
         _receivedByController.text.trim().isNotEmpty &&
         _witnessesByController.text.trim().isNotEmpty;
+  }
+
+  DateTime? _parseHandoverDateTime() {
+    final date = _handoverDateController.text.trim();
+    final time = _handoverTimeController.text.trim();
+    if (date.isEmpty || time.isEmpty) {
+      return null;
+    }
+
+    final normalizedTime = time.length == 5 ? '$time:00' : time;
+    return DateTime.tryParse('${date}T$normalizedTime');
   }
 
   bool _saveBorrowerIfNeeded() {
@@ -782,9 +890,10 @@ const List<Borrower> _defaultBorrowers = [
   ),
 ];
 
-InputDecoration _inputDecoration(String label, IconData icon) {
+InputDecoration _inputDecoration(String label, IconData icon, {String? hint}) {
   return InputDecoration(
     labelText: label,
+    hintText: hint ?? label,
     prefixIcon: Icon(icon),
     filled: true,
     fillColor: Colors.white,
@@ -797,6 +906,18 @@ InputDecoration _inputDecoration(String label, IconData icon) {
       borderSide: const BorderSide(color: Color(0xFFE0E5E8)),
     ),
   );
+}
+
+String _formatDateOnly(DateTime value) {
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  return '${value.year}-$month-$day';
+}
+
+String _formatTimeOnly(DateTime value) {
+  final hour = value.hour.toString().padLeft(2, '0');
+  final minute = value.minute.toString().padLeft(2, '0');
+  return '$hour:$minute';
 }
 
 String _formatDateTime(DateTime value) {
