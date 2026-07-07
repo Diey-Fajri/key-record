@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../services/auth_service.dart';
+import '../../services/app_notification_service.dart';
 import '../../services/key_repository.dart';
 import '../all_keys/all_keys_screen.dart';
 import '../event_log/event_log_screen.dart';
@@ -31,6 +32,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _now = DateTime.now();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      AppNotificationService.start();
+    });
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) {
         setState(() => _now = DateTime.now());
@@ -42,6 +46,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _clockTimer.cancel();
     _searchController.dispose();
+    AppNotificationService.stop();
     super.dispose();
   }
 
@@ -170,6 +175,13 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     if (label == 'All Keys') {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const AllKeysScreen()),
+      );
+      return;
+    }
+
+    if (label == 'Firestore Database') {
       Navigator.of(context).push(
         MaterialPageRoute<void>(builder: (_) => const AllKeysScreen()),
       );
@@ -556,6 +568,7 @@ const List<_NavigationItem> _navigationItems = [
   _NavigationItem('Register New Key', Icons.add_card_outlined),
   _NavigationItem('Event Log', Icons.receipt_long_outlined),
   _NavigationItem('All Keys', Icons.list_alt_outlined),
+  _NavigationItem('Firestore Database', Icons.cloud_outlined),
   _NavigationItem('No Return / Lost / At Maintenance', Icons.warning_amber),
   _NavigationItem('Settings', Icons.settings_outlined),
 ];

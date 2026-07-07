@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+
 import '../../services/key_repository.dart';
+import '../register/register.dart';
 
 class SmartDetailScreen extends StatelessWidget {
   const SmartDetailScreen({required this.record, super.key});
@@ -50,25 +52,30 @@ class SmartDetailScreen extends StatelessWidget {
                         .titleMedium
                         ?.copyWith(color: Colors.black54),
                   ),
-                  const Divider(height: 28),
-                  _DetailRow(label: 'Borrower Name', value: record.borrowerName),
-                  _DetailRow(label: 'I/C Passport No', value: record.icPassport),
-                  _DetailRow(label: 'Phone Number', value: record.phoneNumber),
-                  _DetailRow(label: 'Company', value: record.company),
-                  _DetailRow(label: 'Purpose', value: record.purpose),
-                  _DetailRow(
+                  const SizedBox(height: 18),
+                  _ReadOnlyField(label: 'Key ID', value: record.keyId),
+                  _ReadOnlyField(label: 'Category', value: record.category),
+                  _ReadOnlyField(label: 'Zone', value: record.zone),
+                  _ReadOnlyField(label: 'Status', value: record.status),
+                  _ReadOnlyField(label: 'Borrower Name', value: record.borrowerName),
+                  _ReadOnlyField(label: 'I/C Passport No', value: record.icPassport),
+                  _ReadOnlyField(label: 'Phone Number', value: record.phoneNumber),
+                  _ReadOnlyField(label: 'Company', value: record.company),
+                  _ReadOnlyField(label: 'Purpose', value: record.purpose),
+                  _ReadOnlyField(
                     label: 'Date/Time Taken',
                     value: '${_formatDate(record.takenAt)} ${_formatTime(record.takenAt)}',
                   ),
+                  if (record.metadata.isNotEmpty) ...[
+                    _ReadOnlyField(label: 'Metadata', value: _formatMetadata(record.metadata)),
+                  ],
                   const SizedBox(height: 18),
                   Wrap(
                     spacing: 10,
                     runSpacing: 10,
                     children: [
                       FilledButton.icon(
-                        onPressed: record.status == 'In Use'
-                            ? () => _showAction(context, 'Returned')
-                            : null,
+                        onPressed: _canReturn ? () async => _handleAction(context, 'Returned') : null,
                         icon: const Icon(Icons.assignment_turned_in_outlined),
                         label: const Text('Returned'),
                         style: FilledButton.styleFrom(
@@ -79,18 +86,43 @@ class SmartDetailScreen extends StatelessWidget {
                           ),
                         ),
                       ),
-                      FilledButton.icon(
-                        onPressed: record.status == 'In Use'
-                            ? () => _showAction(context, 'Lost / No Return')
-                            : null,
-                        icon: const Icon(Icons.report_problem_outlined),
-                        label: const Text('Lost / No Return'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFFC62828),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
+                      if (_canAddKey)
+                        FilledButton.icon(
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => const RegisterScreen(),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.add),
+                          label: const Text('Add Key'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF00695C),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
                           ),
+                        ),
+                      PopupMenuButton<String>(
+                        onSelected: (value) async {
+                          await _handleAction(context, value);
+                        },
+                        itemBuilder: (context) => [
+                          if (_canEdit)
+                            const PopupMenuItem(value: 'Edit', child: Text('Edit')),
+                          const PopupMenuItem(value: 'Lost', child: Text('Lost')),
+                          const PopupMenuItem(value: 'Replaced', child: Text('New key replaced')),
+                          const PopupMenuItem(value: 'Hand Over', child: Text('Hand Over')),
+                          const PopupMenuItem(value: 'Damaged', child: Text('Damaged')),
+                          if (record.status == 'Lost')
+                            const PopupMenuItem(value: 'Found', child: Text('Key found')),
+                        ],
+                        child: OutlinedButton.icon(
+                          onPressed: null,
+                          icon: const Icon(Icons.more_horiz),
+                          label: const Text('More'),
                         ),
                       ),
                     ],
@@ -104,15 +136,44 @@ class SmartDetailScreen extends StatelessWidget {
     );
   }
 
-  void _showAction(BuildContext context, String action) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$action action is ready to connect next.')),
-    );
+  bool get _canReturn => record.status == 'In Use' || record.status == 'Hand Over';
+
+  bool get _canAddKey => record.status == 'Available';
+
+  bool get _canEdit => record.status == 'In Use';
+
+  Future<void> _handleAction(BuildContext context, String action) async {
+    if (action == 'Returned') {
+      await KeyRecordRepository.returnKey(record);
+    } else if (action == 'Edit') {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Edit key action is ready to connect next.')),
+        );
+      }
+      return;
+    } else if (action == 'Found') {
+      await KeyRecordRepository.returnKey(record);
+    } else if (action == 'Lost') {
+      await KeyRecordRepository.markLost(record);
+    } else if (action == 'Replaced') {
+      await KeyRecordRepository.markReplaced(record);
+    } else if (action == 'Hand Over') {
+      await KeyRecordRepository.markHandOver(record);
+    } else if (action == 'Damaged') {
+      await KeyRecordRepository.markDamaged(record);
+    }
+
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$action updated.')),
+      );
+    }
   }
 }
 
-class _DetailRow extends StatelessWidget {
-  const _DetailRow({required this.label, required this.value});
+class _ReadOnlyField extends StatelessWidget {
+  const _ReadOnlyField({required this.label, required this.value});
 
   final String label;
   final String value;
@@ -121,31 +182,24 @@ class _DetailRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 150,
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.black54,
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
+      child: TextFormField(
+        initialValue: value,
+        readOnly: true,
+        decoration: InputDecoration(
+          labelText: label,
+          filled: true,
+          fillColor: const Color(0xFFF9FBFC),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
           ),
-          Expanded(
-            child: Text(
-              value,
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
+}
+
+String _formatMetadata(Map<String, dynamic> metadata) {
+  return metadata.entries.map((entry) => '${entry.key}: ${entry.value}').join(' | ');
 }
 
 class _StatusTag extends StatelessWidget {
@@ -157,10 +211,22 @@ class _StatusTag extends StatelessWidget {
   Widget build(BuildContext context) {
     final bgColor = status == 'In Use'
         ? const Color(0xFFE8F3F1)
-        : const Color(0xFFFFE5E5);
+        : status == 'Available'
+            ? const Color(0xFFE7F5EA)
+            : status == 'Hand Over'
+                ? const Color(0xFFE9EEF6)
+                : status == 'Damaged' || status == 'Replaced'
+                    ? const Color(0xFFFFF3E0)
+                    : const Color(0xFFFFE5E5);
     final textColor = status == 'In Use'
         ? const Color(0xFF00695C)
-        : const Color(0xFFC62828);
+        : status == 'Available'
+            ? const Color(0xFF2E7D32)
+            : status == 'Hand Over'
+                ? const Color(0xFF1E3A5F)
+                : status == 'Damaged' || status == 'Replaced'
+                    ? const Color(0xFFEF6C00)
+                    : const Color(0xFFC62828);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),

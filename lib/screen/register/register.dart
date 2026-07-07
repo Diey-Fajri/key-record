@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../services/auth_service.dart';
 import '../../services/key_repository.dart' as repository;
 
 class RegisterScreen extends StatefulWidget {
@@ -19,6 +20,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _companyController = TextEditingController();
   final _departmentController = TextEditingController();
   final _purposeController = TextEditingController();
+  final _documentReportNoController = TextEditingController();
+  final _handoverByController = TextEditingController();
+  final _receivedByController = TextEditingController();
+  final _witnessesByController = TextEditingController();
+  final _handoverDialogFormKey = GlobalKey<FormState>();
   final List<AvailableKey> _selectedKeys = [];
   final List<Borrower> _savedBorrowers = List<Borrower>.from(
     _savedBorrowerStore,
@@ -29,15 +35,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Borrower? _selectedBorrower;
   AvailableKey? _selectedKeyFromSearch;
   String _borrowerCategory = 'Staff';
+  String _takeStatus = 'In Use';
   static const List<String> _borrowerCategories = [
     'Staff',
     'Others',
+  ];
+
+  static const List<String> _takeStatuses = [
+    'In Use',
+    'Hand Over',
   ];
 
   @override
   void initState() {
     super.initState();
     _timeTaken = DateTime.now();
+    _handoverByController.text =
+        AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin';
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) {
         setState(() => _timeTaken = DateTime.now());
@@ -54,6 +68,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _phoneController.dispose();
     _companyController.dispose();
     _purposeController.dispose();
+    _documentReportNoController.dispose();
+    _handoverByController.dispose();
+    _receivedByController.dispose();
+    _witnessesByController.dispose();
     super.dispose();
   }
 
@@ -309,6 +327,44 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       validator: _required,
                     ),
                     const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: _takeStatus,
+                      decoration: _inputDecoration('Status', Icons.info_outline),
+                      items: _takeStatuses
+                          .map((status) => DropdownMenuItem(
+                                value: status,
+                                child: Text(status),
+                              ))
+                          .toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() => _takeStatus = value);
+                          if (value == 'Hand Over') {
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (mounted) {
+                                _openHandoverDetailsDialog();
+                              }
+                            });
+                          }
+                        }
+                      },
+                    ),
+                    if (_takeStatus == 'Hand Over') ...[
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: _openHandoverDetailsDialog,
+                        icon: const Icon(Icons.open_in_new),
+                        label: const Text('Enter handover details'),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _documentReportNoController.text.trim().isEmpty
+                            ? 'No handover details entered yet.'
+                            : 'Handover details captured.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                    const SizedBox(height: 12),
                     CheckboxListTile(
                       value: _saveBorrower,
                       onChanged: (value) {
@@ -412,21 +468,51 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
     final savedBorrower = _saveBorrowerIfNeeded();
     final keyLabels = selectedRecords.map((record) => '${record.zone}/${record.keyName}').join(', ');
+    final isHandOver = _takeStatus == 'Hand Over';
+    final recordedBy = AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin';
 
-    await repository.KeyRecordRepository.takeKeys(selectedRecords, borrower, _timeTaken);
+    if (isHandOver && !_validateHandoverDetails()) {
+      _showMessage('Please complete the handover popup details first.');
+      return;
+    }
+
+    await repository.KeyRecordRepository.takeKeys(
+      selectedRecords,
+      borrower,
+      _timeTaken,
+      recordedBy: recordedBy,
+      transactionStatus: _takeStatus,
+      metadata: isHandOver
+          ? {
+              'documentReportNo': _documentReportNoController.text.trim(),
+              'handoverBy': _handoverByController.text.trim(),
+              'receivedBy': _receivedByController.text.trim(),
+              'witnessesBy': _witnessesByController.text.trim(),
+            }
+          : const {},
+    );
     if (!mounted) return;
+
+    final dialogLines = <String>[
+      'Keys: $keyLabels',
+      'Borrower: $borrowerName',
+      'Status: $_takeStatus',
+      if (isHandOver) ...[
+        'Document report no.: ${_documentReportNoController.text.trim()}',
+        'Handover by: ${_handoverByController.text.trim()}',
+        'Received by: ${_receivedByController.text.trim()}',
+        'Witnesses by: ${_witnessesByController.text.trim()}',
+      ],
+      'Time: ${_formatDateTime(_timeTaken)}',
+      if (savedBorrower) 'Person saved for next time.',
+    ];
 
     await showDialog<void>(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Key Taken - In Use'),
-          content: Text(
-            'Keys: $keyLabels\n'
-            'Borrower: $borrowerName\n'
-            'Time: ${_formatDateTime(_timeTaken)}'
-            '${savedBorrower ? '\nPerson saved for next time.' : ''}',
-          ),
+          title: Text(isHandOver ? 'Key Handover' : 'Key Taken - In Use'),
+          content: Text(dialogLines.join('\n')),
           actions: [
             TextButton(
               onPressed: () {
@@ -439,6 +525,74 @@ class _RegisterScreenState extends State<RegisterScreen> {
         );
       },
     );
+  }
+
+  Future<void> _openHandoverDetailsDialog() async {
+    if (_takeStatus != 'Hand Over') {
+      return;
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Handover Details'),
+          content: Form(
+            key: _handoverDialogFormKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: _documentReportNoController,
+                    decoration: _inputDecoration('Document report no.', Icons.receipt_long),
+                    validator: _required,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _handoverByController,
+                    readOnly: true,
+                    decoration: _inputDecoration('Handover by', Icons.person_outline),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _receivedByController,
+                    decoration: _inputDecoration('Received by', Icons.person_add_alt_1_outlined),
+                    validator: _required,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _witnessesByController,
+                    decoration: _inputDecoration('Witnesses by', Icons.groups_outlined),
+                    validator: _required,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (_handoverDialogFormKey.currentState?.validate() ?? false) {
+                  Navigator.of(context).pop();
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  bool _validateHandoverDetails() {
+    return _documentReportNoController.text.trim().isNotEmpty &&
+        _receivedByController.text.trim().isNotEmpty &&
+        _witnessesByController.text.trim().isNotEmpty;
   }
 
   bool _saveBorrowerIfNeeded() {

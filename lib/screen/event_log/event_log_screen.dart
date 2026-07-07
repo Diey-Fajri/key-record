@@ -22,9 +22,16 @@ class _EventLogScreenState extends State<EventLogScreen> {
 
   static const List<String> _statusOptions = [
     'All',
+    'In Use',
     'Still Out',
     'Returned',
     'Lost',
+    'No Return',
+    'At Maintenance',
+    'Hand Over',
+    'Damaged',
+    'Replaced',
+    'New Key Registered',
   ];
 
   @override
@@ -38,6 +45,11 @@ class _EventLogScreenState extends State<EventLogScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF4F6F8),
       appBar: AppBar(
+        leading: IconButton(
+          onPressed: _goBack,
+          icon: const Icon(Icons.arrow_back),
+          tooltip: 'Back',
+        ),
         title: const Text('Event Log'),
         backgroundColor: const Color(0xFF263238),
         foregroundColor: Colors.white,
@@ -54,6 +66,15 @@ class _EventLogScreenState extends State<EventLogScreen> {
           padding: const EdgeInsets.all(16),
           child: Column(
             children: [
+              StreamBuilder<List<EventLog>>(
+                stream: KeyRecordRepository.watchEventLogs(),
+                builder: (context, snapshot) {
+                  final events = snapshot.data ?? const [];
+                  _latestEvents = events;
+                  return _buildProgressCard(events);
+                },
+              ),
+              const SizedBox(height: 12),
               _buildFilterRow(context),
               const SizedBox(height: 12),
               Expanded(
@@ -82,6 +103,13 @@ class _EventLogScreenState extends State<EventLogScreen> {
         ),
       ),
     );
+  }
+
+  void _goBack() {
+    Future<void>.microtask(() {
+      if (!mounted) return;
+      Navigator.of(context).maybePop();
+    });
   }
 
   Widget _buildFilterRow(BuildContext context) {
@@ -123,6 +151,64 @@ class _EventLogScreenState extends State<EventLogScreen> {
     );
   }
 
+  Widget _buildProgressCard(List<EventLog> events) {
+    final total = events.length;
+    final inUse = events.where((event) => event.status == 'In Use').length;
+    final returned = events.where((event) => event.status == 'Returned').length;
+    final lost = events.where((event) => event.status == 'Lost').length;
+    final noReturn = events.where((event) => event.status == 'No Return').length;
+    final maintenance = events.where((event) => event.status == 'At Maintenance').length;
+    final handOver = events.where((event) => event.status == 'Hand Over').length;
+    final damaged = events.where((event) => event.status == 'Damaged').length;
+    final replaced = events.where((event) => event.status == 'Replaced').length;
+    final latestAction = events.isEmpty ? 'No reports yet' : events.first.action;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE0E5E8)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Report Progress',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Live progression from Firestore event log records.',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.black54),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _SummaryChip(label: 'Total', value: total.toString()),
+              _SummaryChip(label: 'In Use', value: inUse.toString()),
+              _SummaryChip(label: 'Returned', value: returned.toString()),
+              _SummaryChip(label: 'Lost', value: lost.toString()),
+              _SummaryChip(label: 'No Return', value: noReturn.toString()),
+              _SummaryChip(label: 'At Maintenance', value: maintenance.toString()),
+              _SummaryChip(label: 'Hand Over', value: handOver.toString()),
+              _SummaryChip(label: 'Damaged', value: damaged.toString()),
+              _SummaryChip(label: 'Replaced', value: replaced.toString()),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Latest update: $latestAction',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+
   List<EventLog> _filterEvents(List<EventLog> events) {
     final query = _searchController.text.trim().toLowerCase();
     return events.where((event) {
@@ -136,6 +222,7 @@ class _EventLogScreenState extends State<EventLogScreen> {
       }
 
       final tokens = <String>[
+        event.action,
         event.keyId,
         event.keyName,
         event.borrowerName,
@@ -155,10 +242,24 @@ class _EventLogScreenState extends State<EventLogScreen> {
         return event.status == 'In Use' ||
             event.status == 'No Return' ||
             event.status == 'At Maintenance';
+      case 'In Use':
+        return event.status == 'In Use';
       case 'Returned':
         return event.status == 'Returned';
       case 'Lost':
         return event.status == 'Lost';
+      case 'No Return':
+        return event.status == 'No Return';
+      case 'At Maintenance':
+        return event.status == 'At Maintenance';
+      case 'Hand Over':
+        return event.status == 'Hand Over';
+      case 'Damaged':
+        return event.status == 'Damaged';
+      case 'Replaced':
+        return event.status == 'Replaced';
+      case 'New Key Registered':
+        return event.action == 'New Key Registered';
       default:
         return true;
     }
@@ -308,6 +409,40 @@ class _EventLogScreenState extends State<EventLogScreen> {
   String _formatDateTime(DateTime value) {
     return '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')} '
         '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
+  }
+}
+
+class _SummaryChip extends StatelessWidget {
+  const _SummaryChip({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F9FA),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE0E5E8)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(color: Colors.black54),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+          ),
+        ],
+      ),
+    );
   }
 }
 

@@ -401,6 +401,7 @@ class KeyRecordRepository {
     required String keyId,
     required String category,
     required String recordedBy,
+    String audience = 'allMembers',
   }) async {
     if (!_firestoreAvailable) return;
     await _notificationsCollection.add({
@@ -409,6 +410,7 @@ class KeyRecordRepository {
       'keyId': keyId,
       'category': category,
       'recordedBy': recordedBy,
+      'audience': audience,
       'createdAt': FieldValue.serverTimestamp(),
       'readBy': <String>[],
     });
@@ -493,7 +495,12 @@ class KeyRecordRepository {
   }
 
   static bool isLockedStatus(String status) {
-    return status == 'Lost' || status == 'No Return' || status == 'At Maintenance';
+    return status == 'Lost' ||
+        status == 'No Return' ||
+        status == 'At Maintenance' ||
+        status == 'Damaged' ||
+        status == 'Replaced' ||
+        status == 'Hand Over';
   }
 
   static Future<void> takeKeys(
@@ -501,7 +508,12 @@ class KeyRecordRepository {
     Borrower borrower,
     DateTime takenAt, {
     String recordedBy = 'Security Admin',
+    String transactionStatus = 'In Use',
+    Map<String, dynamic>? metadata,
   }) async {
+    final effectiveMetadata = metadata ?? const <String, dynamic>{};
+    final isHandOver = transactionStatus == 'Hand Over';
+
     for (final selected in keys) {
       if (isLockedStatus(selected.status)) {
         continue;
@@ -513,7 +525,7 @@ class KeyRecordRepository {
       }
 
       _keys[index] = _keys[index].copyWith(
-        status: 'In Use',
+        status: isHandOver ? 'Hand Over' : 'In Use',
         borrowerName: borrower.name,
         icPassport: borrower.icPassport,
         phoneNumber: borrower.phone,
@@ -522,7 +534,7 @@ class KeyRecordRepository {
         takenAt: takenAt,
       );
       final event = EventLog(
-        action: 'Key Taken - In Use',
+        action: isHandOver ? 'Key Handed Over' : 'Key Taken - In Use',
         keyId: _keys[index].keyId,
         keyName: _keys[index].keyName,
         borrowerName: borrower.name,
@@ -532,20 +544,26 @@ class KeyRecordRepository {
         purpose: _keys[index].purpose.isEmpty ? 'Routine access' : _keys[index].purpose,
         dateTimeTaken: takenAt,
         dateTimeReturned: null,
-        status: 'In Use',
+        status: isHandOver ? 'Hand Over' : 'In Use',
         lose: false,
         actor: recordedBy,
+        metadata: effectiveMetadata,
       );
       await _appendEvent(event);
 
       if (_firestoreAvailable) {
         await _saveKey(_keys[index]).catchError((_) {});
         await _saveNotification(
-          title: 'Key ${_keys[index].zone}/${_keys[index].keyName} now In Use by ${borrower.name}',
-          body: 'Key ${_keys[index].zone}/${_keys[index].keyName} is now In Use by ${borrower.name}.',
+          title: isHandOver
+              ? 'Key ${_keys[index].zone}/${_keys[index].keyName} handed over to ${borrower.name}'
+              : 'Key ${_keys[index].zone}/${_keys[index].keyName} now In Use by ${borrower.name}',
+          body: isHandOver
+              ? 'Key ${_keys[index].zone}/${_keys[index].keyName} was handed over by ${effectiveMetadata['handoverBy'] ?? recordedBy} to ${borrower.name}.${effectiveMetadata['documentReportNo'] == null || (effectiveMetadata['documentReportNo'] as String).trim().isEmpty ? '' : ' Report No: ${effectiveMetadata['documentReportNo']}.'}'
+              : 'Key ${_keys[index].zone}/${_keys[index].keyName} is now In Use by ${borrower.name}.',
           keyId: _keys[index].keyId,
           category: _keys[index].category,
           recordedBy: recordedBy,
+          audience: 'allMembers',
         ).catchError((_) {});
       }
     }
@@ -573,6 +591,14 @@ class KeyRecordRepository {
 
     if (_firestoreAvailable) {
       await _saveKey(_keys[index]).catchError((_) {});
+      await _saveNotification(
+        title: 'Key Returned',
+        body: 'Key ${_keys[index].zone}/${_keys[index].keyName} has been returned and is now Available.',
+        keyId: _keys[index].keyId,
+        category: _keys[index].category,
+        recordedBy: 'Security Admin',
+        audience: 'allMembers',
+      ).catchError((_) {});
     }
 
     _notifyKeys();
@@ -604,6 +630,14 @@ class KeyRecordRepository {
 
     if (_firestoreAvailable) {
       await _saveKey(_keys[index]).catchError((_) {});
+      await _saveNotification(
+        title: 'No Return',
+        body: 'Key ${_keys[index].zone}/${_keys[index].keyName} is now marked No Return.',
+        keyId: _keys[index].keyId,
+        category: _keys[index].category,
+        recordedBy: 'Security Admin',
+        audience: 'allMembers',
+      ).catchError((_) {});
     }
 
     _notifyKeys();
@@ -641,14 +675,57 @@ class KeyRecordRepository {
   }
 
   static Future<void> markLost(KeyRecord record) async {
+    await _updateKeyStatus(
+      record,
+      status: 'Lost',
+      action: 'Lost',
+      actor: 'Security Admin',
+      lose: true,
+    );
+  }
+
+  static Future<void> markDamaged(KeyRecord record) async {
+    await _updateKeyStatus(
+      record,
+      status: 'Damaged',
+      action: 'Damaged',
+      actor: 'Security Admin',
+    );
+  }
+
+  static Future<void> markReplaced(KeyRecord record) async {
+    await _updateKeyStatus(
+      record,
+      status: 'Replaced',
+      action: 'New Key Replaced',
+      actor: 'Security Admin',
+    );
+  }
+
+  static Future<void> markHandOver(KeyRecord record, {String actor = 'Security Admin'}) async {
+    await _updateKeyStatus(
+      record,
+      status: 'Hand Over',
+      action: 'Hand Over',
+      actor: actor,
+    );
+  }
+
+  static Future<void> _updateKeyStatus(
+    KeyRecord record, {
+    required String status,
+    required String action,
+    required String actor,
+    bool lose = false,
+  }) async {
     final index = _keys.indexWhere((key) => key.keyId == record.keyId);
     if (index == -1) {
       return;
     }
 
-    _keys[index] = _keys[index].copyWith(status: 'Lost');
+    _keys[index] = _keys[index].copyWith(status: status);
     final event = EventLog(
-      action: 'Lost',
+      action: action,
       keyId: _keys[index].keyId,
       keyName: _keys[index].keyName,
       borrowerName: _keys[index].borrowerName,
@@ -658,9 +735,9 @@ class KeyRecordRepository {
       purpose: _keys[index].purpose,
       dateTimeTaken: _keys[index].takenAt,
       dateTimeReturned: null,
-      status: 'Lost',
-      lose: true,
-      actor: 'Security Admin',
+      status: status,
+      lose: lose,
+      actor: actor,
     );
     await _appendEvent(event);
 
@@ -766,13 +843,16 @@ class KeyRecordRepository {
     await _appendEvent(event);
 
     if (_firestoreAvailable) {
+      final qtyValue = metadata == null ? '' : metadata['qty']?.toString().trim() ?? '';
+      final qtySuffix = qtyValue.isEmpty ? '' : ' Qty: $qtyValue.';
       await _saveKey(key).catchError((_) {});
       await _saveNotification(
         title: 'New Key Registered',
-        body: 'A new key "$keyName" has been registered.',
+        body: 'A new key "$keyName" has been registered.$qtySuffix',
         keyId: key.keyId,
         category: category,
         recordedBy: recordedBy,
+        audience: 'allMembers',
       ).catchError((_) {});
     }
   }

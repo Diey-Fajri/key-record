@@ -222,14 +222,14 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                         validator: _required,
                       ),
                       const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _qtyController,
-                        decoration: _inputDecoration('Qty', Icons.confirmation_num),
-                        keyboardType: TextInputType.number,
-                        validator: _required,
-                      ),
-                      const SizedBox(height: 12),
                     ],
+                    TextFormField(
+                      controller: _qtyController,
+                      decoration: _inputDecoration('Qty', Icons.confirmation_num),
+                      keyboardType: TextInputType.number,
+                      validator: _required,
+                    ),
+                    const SizedBox(height: 12),
                     if (_category != 'Roller Shutter') ...[
                       TextFormField(
                         controller: _doorIdController,
