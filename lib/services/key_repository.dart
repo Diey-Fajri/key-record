@@ -72,6 +72,8 @@ class EventLog {
       'lose': lose,
       'actor': actor,
       'category': category,
+      'level': metadata['level']?.toString() ?? '',
+      'zone': metadata['zone']?.toString() ?? '',
       'metadata': metadata,
     };
   }
@@ -97,7 +99,15 @@ class EventLog {
             : null;
 
     final metadataData = data['metadata'];
-    final metadata = metadataData is Map<String, dynamic> ? metadataData : <String, dynamic>{};
+    final metadata = metadataData is Map ? Map<String, dynamic>.from(metadataData) : <String, dynamic>{};
+    final levelFromData = data['level']?.toString().trim() ?? '';
+    final zoneFromData = data['zone']?.toString().trim() ?? '';
+    if (!metadata.containsKey('level') && levelFromData.isNotEmpty) {
+      metadata['level'] = levelFromData;
+    }
+    if (!metadata.containsKey('zone') && zoneFromData.isNotEmpty) {
+      metadata['zone'] = zoneFromData;
+    }
 
     return EventLog(
       id: doc.id,
@@ -213,19 +223,22 @@ class KeyRecord {
             ? timestamp
             : DateTime.now();
 
+    final status = data['status'] as String? ?? 'Unknown';
+    final isAvailable = status == 'Available';
+
     final metadataData = data['metadata'];
-    final metadata = metadataData is Map<String, dynamic> ? metadataData : <String, dynamic>{};
+    final metadata = metadataData is Map ? Map<String, dynamic>.from(metadataData) : <String, dynamic>{};
 
     return KeyRecord(
       keyId: data['keyId'] as String? ?? doc.id,
       zone: data['zone'] as String? ?? '',
       keyName: data['keyName'] as String? ?? '',
-      borrowerName: data['borrowerName'] as String? ?? '',
-      icPassport: data['icPassport'] as String? ?? '',
-      phoneNumber: data['phoneNumber'] as String? ?? '',
-      company: data['company'] as String? ?? '',
-      purpose: data['purpose'] as String? ?? '',
-      status: data['status'] as String? ?? 'Available',
+      borrowerName: isAvailable ? '' : (data['borrowerName'] as String? ?? ''),
+      icPassport: isAvailable ? '' : (data['icPassport'] as String? ?? ''),
+      phoneNumber: isAvailable ? '' : (data['phoneNumber'] as String? ?? ''),
+      company: isAvailable ? '' : (data['company'] as String? ?? ''),
+      purpose: isAvailable ? '' : (data['purpose'] as String? ?? ''),
+      status: status,
       takenAt: takenAt,
       category: data['category'] as String? ?? '',
       metadata: metadata,
@@ -576,28 +589,6 @@ class KeyRecordRepository {
   static Future<void> clearEventLogs() async {
     _eventLogs.clear();
     _eventLogsController.add(List<EventLog>.unmodifiable(_eventLogs));
-
-    if (!_firestoreAvailable) {
-      return;
-    }
-
-    const chunkSize = 400;
-    while (true) {
-      final snapshot = await _eventLogCollection.limit(chunkSize).get();
-      if (snapshot.docs.isEmpty) {
-        break;
-      }
-
-      final batch = _firestore.batch();
-      for (final doc in snapshot.docs) {
-        batch.delete(doc.reference);
-      }
-      await batch.commit();
-
-      if (snapshot.docs.length < chunkSize) {
-        break;
-      }
-    }
   }
 
   static Future<void> clearFilteredEventLogs(List<EventLog> eventsToClear) async {
@@ -620,21 +611,6 @@ class KeyRecordRepository {
       return hasIdMatch || hasSignatureMatch;
     });
     _eventLogsController.add(List<EventLog>.unmodifiable(_eventLogs));
-
-    if (!_firestoreAvailable || idSet.isEmpty) {
-      return;
-    }
-
-    const chunkSize = 400;
-    final ids = idSet.toList(growable: false);
-    for (var i = 0; i < ids.length; i += chunkSize) {
-      final end = (i + chunkSize > ids.length) ? ids.length : i + chunkSize;
-      final batch = _firestore.batch();
-      for (final id in ids.sublist(i, end)) {
-        batch.delete(_eventLogCollection.doc(id));
-      }
-      await batch.commit();
-    }
   }
 
   static String _eventSignature(EventLog event) {
@@ -766,7 +742,8 @@ class KeyRecordRepository {
         status: isHandOver ? 'Hand Over' : 'In Use',
         lose: false,
         actor: recordedBy,
-        metadata: effectiveMetadata,
+        category: _keys[index].category,
+        metadata: mergedMetadata,
       );
       await _appendEvent(event);
 
@@ -1081,13 +1058,20 @@ class KeyRecordRepository {
       final previous = _keys[index];
       final mergedMetadata = metadata ?? previous.metadata;
       final normalizedStatus = status.isEmpty ? previous.status : status;
-      final purposeValue = mergedMetadata['purpose']?.toString() ?? previous.purpose;
+      final isAvailable = normalizedStatus == 'Available';
+      final purposeValue = isAvailable
+          ? ''
+          : (mergedMetadata['purpose']?.toString() ?? previous.purpose);
 
       _keys[index] = previous.copyWith(
         zone: zone,
         keyName: keyName,
         category: category,
         status: normalizedStatus,
+        borrowerName: isAvailable ? '' : previous.borrowerName,
+        icPassport: isAvailable ? '' : previous.icPassport,
+        phoneNumber: isAvailable ? '' : previous.phoneNumber,
+        company: isAvailable ? '' : previous.company,
         purpose: purposeValue,
         metadata: mergedMetadata,
       );

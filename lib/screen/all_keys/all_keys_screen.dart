@@ -474,6 +474,8 @@ class _KeyRecordCard extends StatelessWidget {
   final KeyRecord record;
   final String selectedNavigation;
 
+  bool get _showBorrowerDetails => record.status == 'In Use';
+
   @override
   Widget build(BuildContext context) {
     return InkWell(
@@ -506,11 +508,39 @@ class _KeyRecordCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '${record.category} • ${record.keyName} • ${record.keyId}',
+                    '${record.category} • ${record.keyName}',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Colors.black54,
                         ),
                   ),
+                  if (_showBorrowerDetails) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      'Taken by: ${_borrowerName(record)}',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.black87,
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                    if (_companyDepartment(record).isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        _companyDepartment(record),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Colors.black54,
+                            ),
+                      ),
+                    ],
+                    if (record.purpose.trim().isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'Purpose: ${record.purpose.trim()}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Colors.black54,
+                            ),
+                      ),
+                    ],
+                  ],
                 ],
               ),
             ),
@@ -618,6 +648,27 @@ class _KeyRecordCard extends StatelessWidget {
       return cleanValue;
     }
     return cleanLevel.isNotEmpty ? cleanLevel : 'Unnamed Key';
+  }
+
+  String _borrowerName(KeyRecord record) {
+    final borrower = record.borrowerName.trim();
+    return borrower.isEmpty ? 'member' : borrower;
+  }
+
+  String _companyDepartment(KeyRecord record) {
+    final company = record.company.trim();
+    final department = record.metadata['department']?.toString().trim() ?? '';
+
+    if (company.isNotEmpty && department.isNotEmpty) {
+      return 'Company / Department: $company / $department';
+    }
+    if (company.isNotEmpty) {
+      return 'Company: $company';
+    }
+    if (department.isNotEmpty) {
+      return 'Department: $department';
+    }
+    return '';
   }
 }
 

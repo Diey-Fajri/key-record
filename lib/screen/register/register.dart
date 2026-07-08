@@ -114,7 +114,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             .where((key) => key.status == 'Available' && !selectedIds.contains(key.keyId))
                             .map((record) => AvailableKey(
                                   keyId: record.keyId,
-                                  zone: record.zone,
+                                  zone: _keyLevelZone(record),
                                   name: record.keyName,
                                   status: record.status,
                                 ))
@@ -124,7 +124,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                         return Autocomplete<AvailableKey>(
                           displayStringForOption: (key) =>
-                              '${key.zone} / ${key.name}',
+                              key.zone,
                           optionsBuilder: (value) {
                             final query = value.text.trim().toLowerCase();
                             if (query.isEmpty) {
@@ -173,8 +173,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                     itemBuilder: (context, index) {
                                       final key = options.elementAt(index);
                                       return ListTile(
-                                        title: Text('${key.zone} / ${key.name}'),
-                                        subtitle: Text(key.keyId),
+                                        title: Text(key.zone),
+                                        subtitle: Text(key.name),
                                         trailing: _AvailabilityTag(
                                           status: key.status,
                                         ),
@@ -215,7 +215,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         children: _selectedKeys.map((key) {
                           return InputChip(
                             avatar: const Icon(Icons.vpn_key_outlined),
-                            label: Text('${key.zone} / ${key.name}'),
+                            label: Text('${key.zone} ${key.name}'),
                             onDeleted: () {
                               setState(() => _selectedKeys.remove(key));
                             },
@@ -746,6 +746,67 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return 'Required';
     }
     return null;
+  }
+
+  String _keyLevelZone(repository.KeyRecord record) {
+    final level = record.metadata['level']?.toString().trim() ?? '';
+    final zoneFromMetadata = record.metadata['zone']?.toString().trim() ?? '';
+    if (level.isNotEmpty && zoneFromMetadata.isNotEmpty) {
+      return '$level/$zoneFromMetadata';
+    }
+
+    final parsedFromZone = _parseLevelZonePair(record.zone);
+    if (parsedFromZone != null) {
+      return parsedFromZone;
+    }
+
+    final parsedFromKeyId = _parseZoneFromLegacyKeyId(record.keyId);
+    if (parsedFromKeyId != null) {
+      return parsedFromKeyId;
+    }
+
+    return record.zone.trim();
+  }
+
+  String? _parseLevelZonePair(String value) {
+    final normalized = value.trim();
+    if (normalized.isEmpty || !normalized.contains('/')) {
+      return null;
+    }
+
+    final parts = normalized.split('/');
+    if (parts.length < 2) {
+      return null;
+    }
+
+    final level = parts[0].trim();
+    final zone = parts[1].trim();
+    if (level.isEmpty || zone.isEmpty) {
+      return null;
+    }
+
+    return '$level/$zone';
+  }
+
+  String? _parseZoneFromLegacyKeyId(String keyId) {
+    final normalized = keyId.trim();
+    if (!normalized.toUpperCase().startsWith('ZONE-')) {
+      return null;
+    }
+
+    final remainder = normalized.substring(5);
+    final parts = remainder.split('-').where((part) => part.trim().isNotEmpty).toList();
+    if (parts.length < 2) {
+      return null;
+    }
+
+    final level = parts.first.trim();
+    final zone = parts[1].trim();
+    if (level.isEmpty || zone.isEmpty) {
+      return null;
+    }
+
+    return '$level/$zone';
   }
 
   void _showMessage(String message) {

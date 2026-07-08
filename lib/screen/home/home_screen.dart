@@ -149,6 +149,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     group: borrowerGroups[index],
                                     onDetail: (record) => _openTakeKeyDetail(context, record),
                                     onReturn: (record) => _returnKey(context, record),
+                                    onReturnAll: () => _returnAllKeys(context, borrowerGroups[index]),
                                   );
                                 },
                               );
@@ -215,6 +216,78 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _returnAllKeys(BuildContext context, BorrowerKeyGroup group) async {
+    final count = group.keys.length;
+    if (count == 0) {
+      return;
+    }
+
+    final shouldReturn = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Return All Keys'),
+          content: Text(
+            'Return all $count key(s) for ${group.borrowerName}?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF2E7D32),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Return All'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldReturn != true) {
+      return;
+    }
+
+    if (!context.mounted) {
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    final keysToReturn = List<KeyRecord>.from(group.keys);
+    var successCount = 0;
+    var failureCount = 0;
+
+    for (final record in keysToReturn) {
+      try {
+        await KeyRecordRepository.returnKey(record);
+        successCount += 1;
+      } catch (_) {
+        failureCount += 1;
+      }
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    if (failureCount == 0) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Returned $successCount key(s) for ${group.borrowerName}.')),
+      );
+      return;
+    }
+
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('Returned $successCount key(s), failed $failureCount key(s).'),
+      ),
+    );
+  }
+
   Future<void> _refreshHomeData() async {
     final messenger = ScaffoldMessenger.of(context);
     try {
@@ -250,14 +323,28 @@ class _HomeScreenState extends State<HomeScreen> {
       groups.putIfAbsent(groupKey, () => <KeyRecord>[]).add(key);
     }
 
-    return groups.entries.map((entry) {
+    final grouped = groups.entries.map((entry) {
+      final sortedKeys = List<KeyRecord>.from(entry.value)
+        ..sort((a, b) => b.takenAt.compareTo(a.takenAt));
       final sample = entry.value.first;
       return BorrowerKeyGroup(
         borrowerName: _borrowerLabel(sample),
         borrowerCategory: sample.metadata['borrowerCategory']?.toString().trim() ?? '',
-        keys: entry.value,
+        keys: sortedKeys,
       );
     }).toList();
+
+    grouped.sort((a, b) {
+      final latestA = a.keys.isEmpty
+          ? DateTime.fromMillisecondsSinceEpoch(0)
+          : a.keys.first.takenAt;
+      final latestB = b.keys.isEmpty
+          ? DateTime.fromMillisecondsSinceEpoch(0)
+          : b.keys.first.takenAt;
+      return latestB.compareTo(latestA);
+    });
+
+    return grouped;
   }
 
   String _borrowerLabel(KeyRecord key) {
@@ -482,12 +569,14 @@ class KeyInUseCard extends StatelessWidget {
     required this.group,
     required this.onDetail,
     required this.onReturn,
+    required this.onReturnAll,
     super.key,
   });
 
   final BorrowerKeyGroup group;
   final ValueChanged<KeyRecord> onDetail;
   final ValueChanged<KeyRecord> onReturn;
+  final VoidCallback onReturnAll;
 
   @override
   Widget build(BuildContext context) {
@@ -525,7 +614,7 @@ class KeyInUseCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Borrower: ${group.borrowerName}',
+                        'Taken by: ${group.borrowerName}',
                         style: Theme.of(context).textTheme.titleMedium?.copyWith(
                               fontWeight: FontWeight.w700,
                             ),
@@ -551,6 +640,19 @@ class KeyInUseCard extends StatelessWidget {
                 ),
                 const _StatusTag(),
               ],
+            ),
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: onReturnAll,
+                icon: const Icon(Icons.assignment_turned_in_outlined),
+                label: Text('Return All Keys (${group.keys.length})'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF2E7D32),
+                  side: const BorderSide(color: Color(0xFF2E7D32)),
+                ),
+              ),
             ),
             const SizedBox(height: 12),
             Column(
@@ -636,6 +738,14 @@ class KeyInUseCard extends StatelessWidget {
                             .textTheme
                             .bodySmall
                             ?.copyWith(color: Colors.black54),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Purpose: ${_purposeLabel(record)}',
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodySmall
+                            ?.copyWith(color: Colors.black87),
                       ),
                       const SizedBox(height: 10),
                       Wrap(
@@ -734,6 +844,20 @@ class KeyInUseCard extends StatelessWidget {
     final hour = value.hour.toString().padLeft(2, '0');
     final minute = value.minute.toString().padLeft(2, '0');
     return '$day/$month/$year $hour${minute}HRS';
+  }
+
+  String _purposeLabel(KeyRecord record) {
+    final purpose = record.purpose.trim();
+    if (purpose.isNotEmpty) {
+      return purpose;
+    }
+
+    final metadataPurpose = record.metadata['purpose']?.toString().trim() ?? '';
+    if (metadataPurpose.isNotEmpty) {
+      return metadataPurpose;
+    }
+
+    return 'N/A';
   }
 }
 

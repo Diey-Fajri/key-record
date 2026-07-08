@@ -68,7 +68,6 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                         ?.copyWith(color: Colors.black54),
                   ),
                   const SizedBox(height: 18),
-                  _ReadOnlyField(label: 'Key ID', value: _currentRecord.keyId),
                   _ReadOnlyField(label: 'Key Name', value: _currentRecord.keyName),
                   _ReadOnlyField(label: 'Category', value: _currentRecord.category),
                   _ReadOnlyField(label: 'Location', value: _readMetadata('location')),
@@ -88,13 +87,13 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                   if (_currentRecord.category != 'Roller Shutter')
                     _ReadOnlyField(label: 'Door ID', value: _readMetadata('doorId')),
                   _ReadOnlyField(label: 'Status', value: _currentRecord.status),
-                  if (_readMetadata('staffName').isNotEmpty)
+                  if (_currentRecord.status != 'Available' && _readMetadata('staffName').isNotEmpty)
                     _ReadOnlyField(label: 'Name Staff', value: _readMetadata('staffName')),
-                  if (_readMetadata('department').isNotEmpty)
+                  if (_currentRecord.status != 'Available' && _readMetadata('department').isNotEmpty)
                     _ReadOnlyField(label: 'Department', value: _readMetadata('department')),
-                  if (_readMetadata('tenantName').isNotEmpty)
+                  if (_currentRecord.status != 'Available' && _readMetadata('tenantName').isNotEmpty)
                     _ReadOnlyField(label: 'Tenant\'s Name', value: _readMetadata('tenantName')),
-                  if (_readMetadata('purpose').isNotEmpty)
+                  if (_currentRecord.status != 'Available' && _readMetadata('purpose').isNotEmpty)
                     _ReadOnlyField(label: 'Purpose', value: _readMetadata('purpose')),
                   if (_readMetadata('date').isNotEmpty)
                     _ReadOnlyField(label: 'Date', value: _readMetadata('date')),

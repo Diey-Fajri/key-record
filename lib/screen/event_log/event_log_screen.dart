@@ -1,9 +1,35 @@
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:excel/excel.dart' as xls;
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:public_file_saver/public_file_saver.dart';
 
 import '../../services/key_repository.dart';
+
+class _ExportTransactionRow {
+  _ExportTransactionRow({
+    required this.date,
+    required this.borrowerName,
+    required this.icPassport,
+    required this.phoneNumber,
+    required this.departmentCompany,
+    required this.keyName,
+    required this.purpose,
+    required this.takenAt,
+  });
+
+  final DateTime date;
+  final String borrowerName;
+  final String icPassport;
+  final String phoneNumber;
+  final String departmentCompany;
+  final String keyName;
+  final String purpose;
+  final DateTime? takenAt;
+  DateTime? returnedAt;
+}
 
 class EventLogScreen extends StatefulWidget {
   const EventLogScreen({super.key});
@@ -50,19 +76,14 @@ class _EventLogScreenState extends State<EventLogScreen> {
             tooltip: 'Clear Filtered',
           ),
           IconButton(
-            onPressed: _clearLogs,
-            icon: const Icon(Icons.delete_sweep_outlined),
-            tooltip: 'Clear Log',
-          ),
-          IconButton(
             onPressed: _refreshLogs,
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh from Firestore',
           ),
           IconButton(
-            onPressed: _exportCsv,
+            onPressed: _exportExcel,
             icon: const Icon(Icons.download),
-            tooltip: 'Export CSV',
+            tooltip: 'Export Excel',
           ),
         ],
       ),
@@ -135,7 +156,10 @@ class _EventLogScreenState extends State<EventLogScreen> {
           const SizedBox(height: 6),
           Text(
             latestAction,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.black54),
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Colors.black54,
+                  height: 1.4,
+                ),
           ),
         ],
       ),
@@ -307,6 +331,7 @@ class _EventLogScreenState extends State<EventLogScreen> {
                 sentence,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       fontWeight: FontWeight.w600,
+                      height: 1.4,
                     ),
               ),
             ],
@@ -316,26 +341,101 @@ class _EventLogScreenState extends State<EventLogScreen> {
     );
   }
 
-  Future<void> _exportCsv() async {
-    final events = _sortEvents(_filterEvents(_latestEvents));
-    final csvBuffer = StringBuffer();
-    csvBuffer.writeln('Message,Date/Time');
+  Future<void> _exportExcel() async {
+    try {
+      await KeyRecordRepository.refreshEventLogsFromFirestore();
+      if (!mounted) return;
+    } catch (_) {
+      // Keep exporting from the latest cached data when refresh fails.
+    }
 
-    for (final event in events) {
-      final row = [
-        _buildSimpleMessage(event),
-        _formatDateTime(event.dateTimeTaken),
-      ].map(_escapeCsv).join(',');
-      csvBuffer.writeln(row);
+    final latestFromRepository = await KeyRecordRepository.watchEventLogs().first;
+    if (!mounted) return;
+
+    final events = _sortEvents(_filterEvents(latestFromRepository));
+    final exportRows = _buildExportRows(events);
+    final workbook = xls.Excel.createExcel();
+    final sheetName = workbook.getDefaultSheet() ?? 'Sheet1';
+    workbook.rename(sheetName, 'Event Log');
+    workbook.appendRow(
+      'Event Log',
+      <xls.CellValue>[
+        xls.TextCellValue('Name Borrower'),
+        xls.TextCellValue('IC/Passport No.'),
+        xls.TextCellValue('Phone No.'),
+        xls.TextCellValue('Company / Department'),
+        xls.TextCellValue('Keys'),
+        xls.TextCellValue('Purpose'),
+        xls.TextCellValue('In Use Time'),
+        xls.TextCellValue('Date Taken'),
+        xls.TextCellValue('Returned Time'),
+        xls.TextCellValue('Date Returned'),
+      ],
+    );
+
+    for (final rowData in exportRows) {
+      workbook.appendRow(
+        'Event Log',
+        <xls.CellValue>[
+          xls.TextCellValue(rowData.borrowerName),
+          xls.TextCellValue(rowData.icPassport),
+          xls.TextCellValue(rowData.phoneNumber),
+          xls.TextCellValue(rowData.departmentCompany),
+          xls.TextCellValue(rowData.keyName),
+          xls.TextCellValue(rowData.purpose),
+          xls.TextCellValue(rowData.takenAt == null ? '' : _formatTime(rowData.takenAt!)),
+          xls.TextCellValue(rowData.takenAt == null ? '' : _formatDate(rowData.takenAt!)),
+          xls.TextCellValue(rowData.returnedAt == null ? '' : _formatTime(rowData.returnedAt!)),
+          xls.TextCellValue(rowData.returnedAt == null ? '' : _formatDate(rowData.returnedAt!)),
+        ],
+      );
     }
 
     try {
-      final directory = await getApplicationDocumentsDirectory();
-      final file = File('${directory.path}/event_log_${DateTime.now().millisecondsSinceEpoch}.csv');
-      await file.writeAsString(csvBuffer.toString());
+      final filename = 'event_log_${DateTime.now().millisecondsSinceEpoch}.xlsx';
+      final workbookBytes = workbook.encode();
+      if (workbookBytes == null) {
+        throw Exception('Failed to generate Excel file');
+      }
+      final fileBytes = Uint8List.fromList(workbookBytes);
+      if (Platform.isAndroid) {
+        final result = await PublicFileSaver().saveBytes(
+          bytes: fileBytes,
+          fileName: filename,
+          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        );
+        if (result == null || !result.isSuccess) {
+          throw Exception('Failed to save Excel file to Downloads');
+        }
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Excel file saved to Downloads.')),
+        );
+        return;
+      }
+
+      if (Platform.isIOS) {
+        final result = await PublicFileSaver().saveBytesWithDialog(
+          bytes: fileBytes,
+          fileName: filename,
+          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        );
+        if (result == null || !result.isSuccess) {
+          throw Exception('Failed to save Excel file');
+        }
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Excel file saved successfully.')),
+        );
+        return;
+      }
+
+      final directory = await _resolveExportDirectory();
+      final file = File('${directory.path}/$filename');
+      await file.writeAsBytes(fileBytes);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('CSV exported to ${file.path}')),
+        SnackBar(content: Text('Excel exported to ${file.path}')),
       );
     } catch (error) {
       if (!mounted) return;
@@ -343,6 +443,17 @@ class _EventLogScreenState extends State<EventLogScreen> {
         SnackBar(content: Text('Export failed: $error')),
       );
     }
+  }
+
+  Future<Directory> _resolveExportDirectory() async {
+    if (Platform.isLinux || Platform.isMacOS || Platform.isWindows) {
+      final downloadsDirectory = await getDownloadsDirectory();
+      if (downloadsDirectory != null) {
+        return downloadsDirectory;
+      }
+    }
+
+    return getApplicationDocumentsDirectory();
   }
 
   Future<void> _refreshLogs() async {
@@ -356,49 +467,6 @@ class _EventLogScreenState extends State<EventLogScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Refresh failed: $error')),
-      );
-    }
-  }
-
-  Future<void> _clearLogs() async {
-    final shouldClear = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Clear Event Log'),
-          content: const Text('Delete all event logs? This cannot be undone.'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFC62828),
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Clear'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (shouldClear != true) {
-      return;
-    }
-
-    try {
-      await KeyRecordRepository.clearEventLogs();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Event log cleared.')),
-      );
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Clear log failed: $error')),
       );
     }
   }
@@ -418,7 +486,9 @@ class _EventLogScreenState extends State<EventLogScreen> {
       builder: (context) {
         return AlertDialog(
           title: const Text('Clear Filtered Logs'),
-          content: Text('Delete ${filtered.length} filtered log(s)? This cannot be undone.'),
+          content: Text(
+            'Remove ${filtered.length} filtered log(s) from this app only?',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
@@ -445,7 +515,7 @@ class _EventLogScreenState extends State<EventLogScreen> {
       await KeyRecordRepository.clearFilteredEventLogs(filtered);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${filtered.length} filtered log(s) cleared.')),
+        SnackBar(content: Text('${filtered.length} filtered log(s) removed from app.')),
       );
     } catch (error) {
       if (!mounted) return;
@@ -453,14 +523,6 @@ class _EventLogScreenState extends State<EventLogScreen> {
         SnackBar(content: Text('Clear filtered logs failed: $error')),
       );
     }
-  }
-
-  String _escapeCsv(String value) {
-    if (value.contains(',') || value.contains('"') || value.contains('\n')) {
-      final escaped = value.replaceAll('"', '""');
-      return '"$escaped"';
-    }
-    return value;
   }
 
   String _formatDateTime(DateTime value) {
@@ -473,6 +535,186 @@ class _EventLogScreenState extends State<EventLogScreen> {
 
   String _formatTime(DateTime value) {
     return '${value.hour.toString().padLeft(2, '0')}${value.minute.toString().padLeft(2, '0')}hrs';
+  }
+
+  List<_ExportTransactionRow> _buildExportRows(List<EventLog> events) {
+    final orderedEvents = List<EventLog>.from(events)
+      ..sort((a, b) => a.dateTimeTaken.compareTo(b.dateTimeTaken));
+    final rows = <_ExportTransactionRow>[];
+    final rowsByTransaction = <String, _ExportTransactionRow>{};
+    final openRowsByBaseKey = <String, List<_ExportTransactionRow>>{};
+
+    for (final event in orderedEvents) {
+      if (_isReturnEvent(event)) {
+        final baseKey = _exportBaseKey(event);
+        final candidates = openRowsByBaseKey[baseKey];
+        var matchedCandidate = false;
+        if (candidates != null) {
+          for (var index = candidates.length - 1; index >= 0; index -= 1) {
+            final candidate = candidates[index];
+            final takenAt = candidate.takenAt;
+            if (candidate.returnedAt != null) {
+              continue;
+            }
+            if (takenAt != null && takenAt.isAfter(event.dateTimeReturned ?? event.dateTimeTaken)) {
+              continue;
+            }
+            candidate.returnedAt = event.dateTimeReturned ?? event.dateTimeTaken;
+            matchedCandidate = true;
+            break;
+          }
+        }
+
+        if (!matchedCandidate && _hasExportIdentity(event)) {
+          rows.add(_createExportRow(event, takenAt: null, returnedAt: event.dateTimeReturned ?? event.dateTimeTaken));
+        }
+        continue;
+      }
+
+      if (!_shouldExportEvent(event)) {
+        continue;
+      }
+
+      final transactionKey = _exportTransactionKey(event);
+      final existingRow = rowsByTransaction[transactionKey];
+      if (existingRow != null) {
+        continue;
+      }
+
+      final row = _createExportRow(event, takenAt: event.dateTimeTaken);
+      rowsByTransaction[transactionKey] = row;
+      rows.add(row);
+
+      openRowsByBaseKey.putIfAbsent(_exportBaseKey(event), () => <_ExportTransactionRow>[]).add(row);
+    }
+
+    return rows.reversed.toList();
+  }
+
+  bool _shouldExportEvent(EventLog event) {
+    return !_isReturnEvent(event) && _hasExportIdentity(event);
+  }
+
+  bool _isReturnEvent(EventLog event) {
+    return event.action == 'Returned' || event.status == 'Returned';
+  }
+
+  String _exportBaseKey(EventLog event) {
+    return [
+      event.keyId.trim(),
+      _displayKey(event).trim(),
+      event.borrowerName.trim(),
+      event.icPassport.trim(),
+      event.phoneNumber.trim(),
+      event.company.trim(),
+      event.purpose.trim(),
+    ].join('|');
+  }
+
+  String _exportTransactionKey(EventLog event) {
+    return '${_exportBaseKey(event)}|${event.dateTimeTaken.toIso8601String()}';
+  }
+
+  bool _hasExportIdentity(EventLog event) {
+    return event.borrowerName.trim().isNotEmpty && _displayKey(event).trim().isNotEmpty;
+  }
+
+  _ExportTransactionRow _createExportRow(
+    EventLog event, {
+    required DateTime? takenAt,
+    DateTime? returnedAt,
+  }) {
+    final effectiveDate = returnedAt ?? takenAt ?? event.dateTimeReturned ?? event.dateTimeTaken;
+    final row = _ExportTransactionRow(
+      date: effectiveDate,
+      borrowerName: event.borrowerName,
+      icPassport: event.icPassport,
+      phoneNumber: event.phoneNumber,
+      departmentCompany: _departmentCompany(event),
+      keyName: _keyForTable(event),
+      purpose: _purposeForExport(event),
+      takenAt: takenAt,
+    );
+    row.returnedAt = returnedAt;
+    return row;
+  }
+
+  String _purposeForExport(EventLog event) {
+    final purposeFromMetadata = event.metadata['purpose']?.toString().trim() ?? '';
+    if (purposeFromMetadata.isNotEmpty) {
+      return purposeFromMetadata;
+    }
+
+    return event.purpose.trim();
+  }
+
+  String _departmentCompany(EventLog event) {
+    final department = event.metadata['department']?.toString().trim() ?? '';
+    final company = event.company.trim();
+
+    if (department.isNotEmpty && company.isNotEmpty) {
+      return '$company / $department';
+    }
+
+    return company.isNotEmpty ? company : department;
+  }
+
+  String _keyForTable(EventLog event) {
+    final category = event.category.trim().toLowerCase();
+    final level = event.metadata['level']?.toString().trim() ?? '';
+    final zone = event.metadata['zone']?.toString().trim() ?? '';
+    final rollerNo = event.metadata['rollerNumber']?.toString().trim() ?? '';
+    final lotNo = event.metadata['lotKey']?.toString().trim() ?? '';
+    final masterKey = event.metadata['masterKey']?.toString().trim() ?? '';
+    final keyName = event.keyName.trim();
+
+    if (category == 'zone') {
+      return _joinLevelWithValue(level, zone);
+    }
+
+    if (category == 'roller shutter') {
+      var normalizedLevel = level;
+      var normalizedRollerNo = rollerNo;
+      final rollerLevelNo = event.metadata['rollerLevelNo']?.toString().trim() ?? '';
+      if ((normalizedLevel.isEmpty || normalizedRollerNo.isEmpty) && rollerLevelNo.contains('/')) {
+        final parts = rollerLevelNo.split('/');
+        if (parts.isNotEmpty && normalizedLevel.isEmpty) {
+          normalizedLevel = parts.first.trim();
+        }
+        if (parts.length > 1 && normalizedRollerNo.isEmpty) {
+          normalizedRollerNo = parts[1].trim();
+        }
+      }
+      return _joinLevelWithValue(normalizedLevel, normalizedRollerNo);
+    }
+
+    if (category == 'master key') {
+      final masterKeyValue = masterKey.isNotEmpty ? masterKey : keyName;
+      return _joinLevelWithValue(level, masterKeyValue);
+    }
+
+    if (category == 'lot') {
+      final lotValue = lotNo.isNotEmpty ? lotNo : keyName;
+      return _joinLevelWithValue(level, lotValue);
+    }
+
+    if (category == 'high risk' || category == 'others') {
+      return _joinLevelWithValue(level, keyName);
+    }
+
+    return _displayKey(event);
+  }
+
+  String _joinLevelWithValue(String level, String value) {
+    final safeLevel = level.trim();
+    final safeValue = value.trim();
+    if (safeLevel.isNotEmpty && safeValue.isNotEmpty) {
+      return '$safeLevel/$safeValue';
+    }
+    if (safeValue.isNotEmpty) {
+      return safeValue;
+    }
+    return safeLevel;
   }
 
   String _displayKey(EventLog event) {
@@ -514,26 +756,116 @@ class _EventLogScreenState extends State<EventLogScreen> {
   }
 
   String _buildSimpleMessage(EventLog event) {
-    final key = _displayKey(event).toUpperCase();
+    final key = _keyForTable(event).trim().isEmpty ? _displayKey(event) : _keyForTable(event);
     final actor = event.actor.trim().isEmpty ? 'member' : event.actor;
 
     if (event.action == 'New Key Registered') {
-      return 'New Key added: $key by "$actor".';
+      return 'New key registered by "$actor": $key.';
     }
 
     if (event.status == 'In Use' || event.action.contains('Taken')) {
       final borrower = event.borrowerName.trim().isEmpty ? 'member' : event.borrowerName;
-      return 'Key $key borrowed by "$borrower".';
+      final takenKey = _takenKeyLabel(event, fallback: key);
+      final purpose = _takenPurpose(event);
+      return 'key $takenKey has been taken by "$borrower"\npurpose for : $purpose';
     }
 
     if (event.status == 'Lost' || event.action == 'Lost') {
-      return 'Heads up: key $key is now marked as Lost.';
+      return 'Key $key has been marked as Lost.';
     }
 
     if (event.status == 'Returned' || event.action == 'Returned') {
-      return 'Nice, key $key has been returned.';
+      return 'Key $key has been returned.';
     }
 
-    return '${event.action} - key $key by "$actor".';
+    return '${event.action}: key $key by "$actor".';
+  }
+
+  String _takenKeyLabel(EventLog event, {required String fallback}) {
+    final level = event.metadata['level']?.toString().trim() ?? '';
+    final zone = event.metadata['zone']?.toString().trim() ?? '';
+    if (level.isNotEmpty && zone.isNotEmpty) {
+      return _joinLevelWithValue(level, zone);
+    }
+
+    final parsedFromKeyId = _parseZoneFromLegacyKeyId(event.keyId);
+    if (parsedFromKeyId != null) {
+      return parsedFromKeyId;
+    }
+
+    final parsedFromDisplay = _parseLevelZonePair(event.keyName);
+    if (parsedFromDisplay != null) {
+      return parsedFromDisplay;
+    }
+
+    final fallbackFromDisplay = _parseLevelZonePair(fallback);
+    if (fallbackFromDisplay != null) {
+      return fallbackFromDisplay;
+    }
+
+    return event.keyName.trim().isNotEmpty ? event.keyName.trim() : fallback;
+  }
+
+  String? _parseZoneFromLegacyKeyId(String keyId) {
+    final normalized = keyId.trim();
+    if (!normalized.toUpperCase().startsWith('ZONE-')) {
+      return null;
+    }
+
+    final remainder = normalized.substring(5);
+    if (remainder.isEmpty) {
+      return null;
+    }
+
+    final parts = remainder.split('-').where((part) => part.trim().isNotEmpty).toList();
+    if (parts.length < 2) {
+      return null;
+    }
+
+    final level = parts.first.trim();
+    final zone = parts[1].trim();
+    if (level.isEmpty || zone.isEmpty) {
+      return null;
+    }
+
+    return '$level/$zone';
+  }
+
+  String? _parseLevelZonePair(String value) {
+    final normalized = value.trim();
+    if (normalized.isEmpty) {
+      return null;
+    }
+
+    if (!normalized.contains('/')) {
+      return null;
+    }
+
+    final parts = normalized.split('/');
+    if (parts.length < 2) {
+      return null;
+    }
+
+    final level = parts[0].trim();
+    final zone = parts[1].trim();
+    if (level.isEmpty || zone.isEmpty) {
+      return null;
+    }
+
+    return '$level/$zone';
+  }
+
+  String _takenPurpose(EventLog event) {
+    final purposeFromMetadata = event.metadata['purpose']?.toString().trim() ?? '';
+    if (purposeFromMetadata.isNotEmpty) {
+      return purposeFromMetadata;
+    }
+
+    final purpose = event.purpose.trim();
+    if (purpose.isNotEmpty) {
+      return purpose;
+    }
+
+    return 'N/A';
   }
 }

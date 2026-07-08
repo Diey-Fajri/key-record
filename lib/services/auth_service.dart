@@ -34,13 +34,52 @@ class AuthService {
       final currentUser = _auth.currentUser;
       if (currentUser != null) {
         _authenticated = true;
-        _activeUser = _usernameFromEmail(currentUser.email);
+        _activeUser = await _resolveFirebaseUsername(currentUser);
+        await _prefs?.setBool('authenticated', true);
+        await _prefs?.setString('activeUser', _activeUser);
+        if (_activeUser.trim().isNotEmpty) {
+          await _prefs?.setString('storedUsername', _activeUser);
+        }
         return;
       }
     }
 
     _authenticated = _prefs?.getBool('authenticated') ?? false;
     _activeUser = _prefs?.getString('activeUser') ?? '';
+  }
+
+  static Future<String> _resolveFirebaseUsername(User currentUser) async {
+    final saved = _prefs?.getString('storedUsername')?.trim() ?? '';
+    if (saved.isNotEmpty) {
+      return saved;
+    }
+
+    try {
+      final byUid = await _firestore.collection('users').doc(currentUser.uid).get();
+      final usernameByUid = (byUid.data()?['username'] as String?)?.trim() ?? '';
+      if (usernameByUid.isNotEmpty) {
+        return usernameByUid;
+      }
+
+      final normalizedEmail = _normalizeEmail(currentUser.email ?? '');
+      if (normalizedEmail.isNotEmpty) {
+        final byEmail = await _firestore
+            .collection('users')
+            .where('email', isEqualTo: normalizedEmail)
+            .limit(1)
+            .get();
+        final usernameByEmail = byEmail.docs.isEmpty
+            ? ''
+            : ((byEmail.docs.first.data()['username'] as String?)?.trim() ?? '');
+        if (usernameByEmail.isNotEmpty) {
+          return usernameByEmail;
+        }
+      }
+    } catch (error) {
+      debugPrint('AuthService: failed to resolve Firebase username: $error');
+    }
+
+    return _usernameFromEmail(currentUser.email);
   }
 
   static Future<bool> hasPermanentAccount() async {
