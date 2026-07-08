@@ -6,8 +6,28 @@ import 'package:flutter/material.dart';
 
 import 'auth_service.dart';
 
+class AppNotificationMessage {
+  const AppNotificationMessage({
+    required this.id,
+    required this.title,
+    required this.body,
+    required this.type,
+    required this.data,
+  });
+
+  final String id;
+  final String title;
+  final String body;
+  final String type;
+  final Map<String, dynamic> data;
+}
+
+typedef AppNotificationCallback = FutureOr<void> Function(AppNotificationMessage message);
+
 class AppNotificationService {
   AppNotificationService._();
+
+  static AppNotificationCallback? onNotificationReceived;
 
   static StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _subscription;
   static bool _initialized = false;
@@ -85,10 +105,23 @@ class AppNotificationService {
           continue;
         }
 
-        await _showPopup(
-          context: context,
+        final message = AppNotificationMessage(
+          id: doc.id,
           title: data['title']?.toString() ?? 'Notification',
           body: data['body']?.toString() ?? '',
+          type: data['type']?.toString() ?? '',
+          data: Map<String, dynamic>.from(data),
+        );
+
+        final callback = onNotificationReceived;
+        if (callback != null) {
+          unawaited(Future<void>.sync(() => callback(message)));
+        }
+
+        await _showPopup(
+          context: context,
+          title: message.title,
+          body: message.body,
           docId: doc.id,
         );
       } catch (error) {

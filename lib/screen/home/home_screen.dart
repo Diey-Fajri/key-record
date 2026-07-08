@@ -1,10 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../services/auth_service.dart';
 import '../../services/app_notification_service.dart';
+import '../../services/app_update_service.dart';
 import '../../services/key_repository.dart';
+import '../../widget/app_update_dialog.dart';
 import '../all_keys/all_keys_screen.dart';
 import '../event_log/event_log_screen.dart';
 import '../register/register.dart';
@@ -21,17 +24,27 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  static const String _githubOwner = 'dieyfajri';
+  static const String _githubRepository = 'key_record';
+
   late DateTime _now;
   late Timer _clockTimer;
   final TextEditingController _searchController = TextEditingController();
   final Stream<List<KeyRecord>> _keysInUseStream =
       KeyRecordRepository.watchKeysInUse();
+  late final AppUpdateService _appUpdateService;
+  bool _checkingUpdateFromNotification = false;
 
   @override
   void initState() {
     super.initState();
     _now = DateTime.now();
+    _appUpdateService = AppUpdateService(
+      owner: _githubOwner,
+      repository: _githubRepository,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      AppNotificationService.onNotificationReceived = _onNotificationReceived;
       AppNotificationService.start();
     });
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -43,10 +56,38 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    AppNotificationService.onNotificationReceived = null;
     _clockTimer.cancel();
     _searchController.dispose();
     AppNotificationService.stop();
     super.dispose();
+  }
+
+  Future<void> _onNotificationReceived(AppNotificationMessage message) async {
+    if (message.type.trim().toLowerCase() != 'update') {
+      return;
+    }
+    if (!mounted || _checkingUpdateFromNotification) {
+      return;
+    }
+
+    _checkingUpdateFromNotification = true;
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final result = await _appUpdateService.checkForUpdate(currentVersion: info.version);
+      if (!mounted || !result.isUpdateAvailable) {
+        return;
+      }
+      await showAppUpdateDialog(
+        context: context,
+        result: result,
+        appUpdateService: _appUpdateService,
+      );
+    } catch (error) {
+      debugPrint('Auto update check failed: $error');
+    } finally {
+      _checkingUpdateFromNotification = false;
+    }
   }
 
   @override

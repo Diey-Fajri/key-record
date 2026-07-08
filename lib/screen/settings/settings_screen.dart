@@ -4,6 +4,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../../services/auth_service.dart';
 import '../../services/app_update_service.dart';
 import '../../services/key_repository.dart';
+import '../../widget/app_update_dialog.dart';
 import '../login/login_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -23,7 +24,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _refreshing = false;
   bool _checkingUpdate = false;
   bool _loadingVersion = true;
+  bool _editingProfile = false;
   DateTime? _lastSyncAt;
+  DateTime? _lastUpdateCheckedAt;
   String _appVersion = '-';
   String _visibleUsername = '-';
 
@@ -76,74 +79,138 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                     ),
                     const SizedBox(height: 12),
-                    TextField(
-                      controller: _usernameController,
-                      decoration: InputDecoration(
-                        labelText: 'Username',
-                        hintText: 'Enter username',
-                        prefixIcon: const Icon(Icons.person_outline),
-                        filled: true,
-                        fillColor: Colors.white,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: const BorderSide(color: Color(0xFFE0E5E8)),
+                    if (!_editingProfile) ...[
+                      Text(
+                        'Username: $_visibleUsername',
+                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Email: ${AuthService.activeEmail.isEmpty ? '-' : AuthService.activeEmail}',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: Colors.black54,
+                            ),
+                      ),
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _editingProfile = true;
+                            _usernameController.text = _visibleUsername == '-' ? '' : _visibleUsername;
+                          });
+                        },
+                        icon: const Icon(Icons.edit_outlined),
+                        label: const Text('Edit'),
+                      ),
+                    ] else ...[
+                      TextField(
+                        controller: _usernameController,
+                        decoration: InputDecoration(
+                          labelText: 'Username',
+                          hintText: 'Enter username',
+                          prefixIcon: const Icon(Icons.person_outline),
+                          filled: true,
+                          fillColor: Colors.white,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: const BorderSide(color: Color(0xFFE0E5E8)),
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      initialValue: AuthService.activeEmail.isEmpty ? '-' : AuthService.activeEmail,
-                      readOnly: true,
-                      decoration: InputDecoration(
-                        labelText: 'Email',
-                        prefixIcon: const Icon(Icons.alternate_email),
-                        filled: true,
-                        fillColor: const Color(0xFFF7F9FA),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    FilledButton.icon(
-                      onPressed: _saving
-                          ? null
-                          : () async {
-                              final messenger = ScaffoldMessenger.of(context);
-                              final username = _usernameController.text.trim();
-                              if (username.isEmpty) {
-                                messenger.showSnackBar(
-                                  const SnackBar(content: Text('Username cannot be empty.')),
-                                );
-                                return;
-                              }
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: _saving
+                                  ? null
+                                  : () async {
+                                      final messenger = ScaffoldMessenger.of(context);
+                                      final username = _usernameController.text.trim();
+                                      if (username.isEmpty) {
+                                        messenger.showSnackBar(
+                                          const SnackBar(content: Text('Username cannot be empty.')),
+                                        );
+                                        return;
+                                      }
 
-                              setState(() => _saving = true);
-                              try {
-                                await AuthService.updateUsername(username);
-                                if (!mounted) return;
-                                setState(() => _visibleUsername = username);
-                                messenger.showSnackBar(
-                                  const SnackBar(content: Text('Username updated.')),
-                                );
-                              } catch (error) {
-                                if (!mounted) return;
-                                messenger.showSnackBar(
-                                  SnackBar(content: Text('Update failed: $error')),
-                                );
-                              } finally {
-                                if (mounted) {
-                                  setState(() => _saving = false);
-                                }
-                              }
-                            },
-                      icon: const Icon(Icons.save_outlined),
-                      label: const Text('Save Username'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF00695C),
-                        foregroundColor: Colors.white,
-                        minimumSize: const Size.fromHeight(50),
+                                      setState(() => _saving = true);
+                                      try {
+                                        await AuthService.updateUsername(username);
+                                        if (!mounted) return;
+                                        setState(() {
+                                          _visibleUsername = username;
+                                          _editingProfile = false;
+                                        });
+                                        messenger.showSnackBar(
+                                          const SnackBar(content: Text('Username updated.')),
+                                        );
+                                      } catch (error) {
+                                        if (!mounted) return;
+                                        messenger.showSnackBar(
+                                          SnackBar(content: Text('Update failed: $error')),
+                                        );
+                                      } finally {
+                                        if (mounted) {
+                                          setState(() => _saving = false);
+                                        }
+                                      }
+                                    },
+                              icon: const Icon(Icons.save_outlined),
+                              label: const Text('Save'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF00695C),
+                                foregroundColor: Colors.white,
+                                minimumSize: const Size.fromHeight(50),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: _saving
+                                  ? null
+                                  : () {
+                                      setState(() {
+                                        _editingProfile = false;
+                                        _usernameController.text = _visibleUsername == '-' ? '' : _visibleUsername;
+                                      });
+                                    },
+                              child: const Text('Cancel'),
+                            ),
+                          ),
+                        ],
                       ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFE0E5E8)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Description',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Key Record SSC was designed and developed by FAJRI (S17380).\nInitial app release: 2026.',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Colors.black87,
+                            height: 1.4,
+                          ),
                     ),
                   ],
                 ),
@@ -172,6 +239,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             color: Colors.black54,
                           ),
                     ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _lastUpdateCheckedAt == null
+                          ? 'Last checked: Never'
+                          : 'Last checked: ${_formatDateTime(_lastUpdateCheckedAt!)}',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.black54,
+                          ),
+                    ),
                     const SizedBox(height: 12),
                     FilledButton.icon(
                       onPressed: (_checkingUpdate || _loadingVersion) ? null : _checkForUpdates,
@@ -188,14 +264,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         foregroundColor: Colors.white,
                         minimumSize: const Size.fromHeight(50),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Current Username: $_visibleUsername',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Colors.black87,
-                            fontWeight: FontWeight.w600,
-                          ),
                     ),
                   ],
                 ),
@@ -234,22 +302,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               final messenger = ScaffoldMessenger.of(context);
                               setState(() => _refreshing = true);
                               try {
-                                final connected = await KeyRecordRepository.refreshAllFromFirestore();
+                                await KeyRecordRepository.refreshAllFromFirestore();
                                 if (!mounted) return;
                                 setState(() => _lastSyncAt = DateTime.now());
                                 messenger.showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      connected
-                                          ? 'Synced latest data from Firestore.'
-                                          : 'Firebase not connected. Showing local data.',
-                                    ),
-                                  ),
+                                  const SnackBar(content: Text('done refresh')),
                                 );
                               } catch (error) {
                                 if (!mounted) return;
                                 messenger.showSnackBar(
-                                  SnackBar(content: Text('Sync failed: $error')),
+                                  SnackBar(content: Text('Refresh failed: $error')),
                                 );
                               } finally {
                                 if (mounted) {
@@ -321,15 +383,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final result = await _appUpdateService.checkForUpdate(currentVersion: _appVersion);
       if (!mounted) return;
+      setState(() => _lastUpdateCheckedAt = DateTime.now());
 
       if (!result.isUpdateAvailable) {
         messenger.showSnackBar(
-          const SnackBar(content: Text('Your app is up to date.')),
+          const SnackBar(content: Text("You're using the latest version.")),
         );
         return;
       }
 
-      await _showUpdateDialog(result);
+      await showAppUpdateDialog(
+        context: context,
+        result: result,
+        appUpdateService: _appUpdateService,
+      );
     } catch (error) {
       if (!mounted) return;
       messenger.showSnackBar(
@@ -342,115 +409,4 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _showUpdateDialog(UpdateCheckResult result) async {
-    var downloading = false;
-    var progressText = 'Preparing download...';
-
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: !downloading,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Update Available'),
-              content: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('Current version: ${result.currentVersion}'),
-                    const SizedBox(height: 6),
-                    Text('Latest version: ${result.latestVersion}'),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Release notes:',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                    ),
-                    const SizedBox(height: 6),
-                    Container(
-                      width: double.infinity,
-                      constraints: const BoxConstraints(maxHeight: 220),
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF7F9FA),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFFE0E5E8)),
-                      ),
-                      child: Text(
-                        result.release.body.trim().isEmpty
-                            ? 'No release notes provided.'
-                            : result.release.body.trim(),
-                      ),
-                    ),
-                    if (downloading) ...[
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(child: Text(progressText)),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: downloading ? null : () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Later'),
-                ),
-                FilledButton(
-                  onPressed: downloading
-                      ? null
-                      : () async {
-                          final messenger = ScaffoldMessenger.of(this.context);
-                          setDialogState(() {
-                            downloading = true;
-                            progressText = 'Starting download...';
-                          });
-                          try {
-                            await _appUpdateService.downloadAndInstallApk(
-                              result.release,
-                              onReceiveProgress: (received, total) {
-                                if (total <= 0) {
-                                  return;
-                                }
-                                final percent = ((received / total) * 100).clamp(0, 100).toStringAsFixed(0);
-                                setDialogState(() {
-                                  progressText = 'Downloading... $percent%';
-                                });
-                              },
-                            );
-                            if (!mounted) return;
-                            if (!dialogContext.mounted) return;
-                            Navigator.of(dialogContext).pop();
-                            messenger.showSnackBar(
-                              const SnackBar(
-                                content: Text('APK downloaded. Continue installation from the installer screen.'),
-                              ),
-                            );
-                          } catch (error) {
-                            setDialogState(() => downloading = false);
-                            messenger.showSnackBar(
-                              SnackBar(content: Text('Update failed: $error')),
-                            );
-                          }
-                        },
-                  child: const Text('Update Now'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
 }
