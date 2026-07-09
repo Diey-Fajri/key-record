@@ -42,10 +42,18 @@ class AuthService {
         }
         return;
       }
+
+      // Firebase is available but no signed-in user: treat as logged out.
+      _authenticated = false;
+      _activeUser = '';
+      await _prefs?.remove('authenticated');
+      await _prefs?.remove('activeUser');
+      return;
     }
 
-    _authenticated = _prefs?.getBool('authenticated') ?? false;
-    _activeUser = _prefs?.getString('activeUser') ?? '';
+    // If Firebase is not available, never auto-unlock into dashboard.
+    _authenticated = false;
+    _activeUser = '';
   }
 
   static Future<String> _resolveFirebaseUsername(User currentUser) async {
@@ -109,13 +117,6 @@ class AuthService {
       return false;
     }
 
-    final isApproved = await _isApprovedMemberEmail(normalizedEmail);
-    if (!isApproved) {
-      lastErrorMessage = 'This email is not approved for access. Please contact the admin.';
-      failedAttempts += 1;
-      return false;
-    }
-
     final storedPassword = _prefs?.getString('storedPassword');
     final storedEmail = _prefs?.getString('storedEmail');
     final storedUsername = _prefs?.getString('storedUsername');
@@ -124,6 +125,21 @@ class AuthService {
       if (storedPassword != null && storedPassword.isNotEmpty && storedEmail == normalizedEmail) {
         try {
           await _auth.signInWithEmailAndPassword(email: normalizedEmail, password: storedPassword);
+          final user = _auth.currentUser;
+          _authenticated = user != null;
+          _activeUser = user == null
+              ? ''
+              : (storedUsername != null && storedUsername.isNotEmpty
+                    ? storedUsername
+                    : await _resolveFirebaseUsername(user));
+          failedAttempts = 0;
+          await _prefs?.setBool('authenticated', _authenticated);
+          await _prefs?.setString('activeUser', _activeUser);
+          await _prefs?.setString('storedEmail', normalizedEmail);
+          if (_activeUser.isNotEmpty) {
+            await _prefs?.setString('storedUsername', _activeUser);
+          }
+          return true;
         } on FirebaseAuthException catch (error) {
           if (shouldPromptForSetupAfterAuthError(error.code)) {
             await clearStoredCredentials();
@@ -138,15 +154,12 @@ class AuthService {
         }
       }
 
-      _authenticated = true;
-      _activeUser = (storedUsername != null && storedUsername.isNotEmpty) ? storedUsername : normalizedEmail;
-      failedAttempts = 0;
-      await _prefs?.setBool('authenticated', true);
-      await _prefs?.setString('activeUser', _activeUser);
+      // No stored password yet: allow continuing to setup flow, but do not authenticate.
+      _authenticated = false;
+      _activeUser = '';
+      await _prefs?.remove('authenticated');
+      await _prefs?.remove('activeUser');
       await _prefs?.setString('storedEmail', normalizedEmail);
-      if (storedUsername != null && storedUsername.isNotEmpty) {
-        await _prefs?.setString('storedUsername', storedUsername);
-      }
       return true;
     }
 
@@ -191,12 +204,6 @@ class AuthService {
     }
 
     if (_firebaseAvailable) {
-      final isApproved = await _isApprovedMemberEmail(normalizedEmail);
-      if (!isApproved) {
-        lastErrorMessage = 'This email is not approved for access. Please contact the admin.';
-        return;
-      }
-
       try {
         await _auth.signInWithEmailAndPassword(email: normalizedEmail, password: password);
         final uid = _auth.currentUser?.uid ?? normalizedEmail;
@@ -370,127 +377,6 @@ class AuthService {
       default:
         return false;
     }
-  }
-
-  static Future<bool> _isApprovedMemberEmail(String email) async {
-    if (!_firebaseAvailable) {
-      debugPrint('AuthService: Firebase is not available for member lookup');
-      return false;
-    }
-
-    debugPrint('AuthService: checking approved member for [$email]');
-    final collectionNames = [
-      'Members',
-      'members',
-      'member',
-      'users',
-      'approvedMembers',
-      'approved_members',
-      'whitelist',
-      'memberList',
-      'member_list',
-      'access',
-      'staff',
-      'employees',
-      'admins',
-      'people',
-    ];
-
-    for (final collectionName in collectionNames) {
-      try {
-        debugPrint('AuthService: checking collection [$collectionName]');
-        final snapshot = await _firestore.collection(collectionName).limit(100).get();
-        debugPrint('AuthService: [$collectionName] returned ${snapshot.docs.length} documents');
-        for (final doc in snapshot.docs) {
-          final data = doc.data();
-          final storedEmail = _getStoredEmail(data);
-          final docIdMatches = _normalizeEmail(doc.id) == email;
-          if ((storedEmail != null && _normalizeEmail(storedEmail) == email) || docIdMatches) {
-            final active = _isActiveMember(data);
-            debugPrint('AuthService: matched email in [$collectionName], active=$active, doc=${doc.id}');
-            return active;
-          }
-        }
-      } catch (error) {
-        debugPrint('AuthService: error reading [$collectionName]: $error');
-      }
-
-      try {
-        debugPrint('AuthService: checking collection group [$collectionName]');
-        final groupSnapshot = await _firestore.collectionGroup(collectionName).limit(200).get();
-        debugPrint('AuthService: collectionGroup [$collectionName] returned ${groupSnapshot.docs.length} documents');
-        for (final doc in groupSnapshot.docs) {
-          final data = doc.data();
-          final storedEmail = _getStoredEmail(data);
-          final docIdMatches = _normalizeEmail(doc.id) == email;
-          if ((storedEmail != null && _normalizeEmail(storedEmail) == email) || docIdMatches) {
-            final active = _isActiveMember(data);
-            debugPrint('AuthService: matched email in collectionGroup [$collectionName], active=$active, doc=${doc.id}');
-            return active;
-          }
-        }
-      } catch (error) {
-        debugPrint('AuthService: error reading collection group [$collectionName]: $error');
-      }
-    }
-
-    debugPrint('AuthService: no approved member found for [$email]');
-    return false;
-  }
-
-  static String? _getStoredEmail(Map<String, dynamic> data) {
-    for (final key in [
-      'email',
-      'memberEmail',
-      'mail',
-      'member_email',
-      'memberEmailAddress',
-      'emailAddress',
-      'contactEmail',
-      'member_mail',
-      'userEmail',
-      'memberMail',
-      'staffEmail',
-      'employeeEmail',
-      'registeredEmail',
-      'accountEmail',
-    ]) {
-      final value = data[key];
-      if (value is String && value.trim().isNotEmpty) {
-        return value;
-      }
-    }
-    return null;
-  }
-
-  static bool _isActiveMember(Map<String, dynamic> data) {
-    if (data.containsKey('active')) {
-      return data['active'] == true || data['active'] == 'true';
-    }
-    if (data.containsKey('approved')) {
-      return data['approved'] == true || data['approved'] == 'true';
-    }
-    if (data.containsKey('enabled')) {
-      return data['enabled'] == true || data['enabled'] == 'true';
-    }
-    if (data.containsKey('isActive')) {
-      return data['isActive'] == true || data['isActive'] == 'true';
-    }
-    if (data.containsKey('isApproved')) {
-      return data['isApproved'] == true || data['isApproved'] == 'true';
-    }
-    if (data.containsKey('isEnabled')) {
-      return data['isEnabled'] == true || data['isEnabled'] == 'true';
-    }
-    if (data.containsKey('status')) {
-      final status = data['status'];
-      return status == true || status == 'active' || status == 'approved' || status == 'enabled';
-    }
-    if (data.containsKey('role')) {
-      final role = data['role'];
-      return role == 'member' || role == 'admin' || role == 'staff';
-    }
-    return true;
   }
 
   static String _normalizeEmail(String email) {

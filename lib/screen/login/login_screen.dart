@@ -57,7 +57,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'Enter your approved member email to continue.',
+                    'Enter your member email to continue.',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.black54),
                   ),
@@ -198,7 +198,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
 
     final attemptsMessage = AuthService.lastErrorMessage ?? (AuthService.failedAttempts >= 3
-        ? 'Multiple failed attempts. Please contact the admin if you need access.'
+      ? 'Multiple failed attempts. Please try again later.'
         : 'Invalid credentials. Please try again.');
 
     setState(() {

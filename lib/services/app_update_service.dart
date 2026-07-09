@@ -1,26 +1,29 @@
-import 'dart:convert';
 import 'dart:io';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:dio/dio.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:http/http.dart' as http;
 
-import '../models/github_release.dart';
+import '../models/app_update_info.dart';
 
 class UpdateCheckResult {
   const UpdateCheckResult({
     required this.currentVersion,
     required this.latestVersion,
-    required this.release,
+    required this.update,
     required this.isUpdateAvailable,
+    required this.isForceUpdate,
+    required this.minimumVersion,
   });
 
   final String currentVersion;
   final String latestVersion;
-  final GitHubRelease release;
+  final AppUpdateInfo update;
   final bool isUpdateAvailable;
+  final bool isForceUpdate;
+  final String minimumVersion;
 }
 
 class AppUpdateException implements Exception {
@@ -32,91 +35,146 @@ class AppUpdateException implements Exception {
   String toString() => message;
 }
 
+class UpdateConfigValidationResult {
+  const UpdateConfigValidationResult({
+    required this.exists,
+    required this.missingFields,
+    required this.errors,
+    required this.apkUrlResolved,
+  });
+
+  final bool exists;
+  final List<String> missingFields;
+  final List<String> errors;
+  final bool apkUrlResolved;
+
+  bool get isValid => exists && missingFields.isEmpty && errors.isEmpty && apkUrlResolved;
+}
+
 class AppUpdateService {
   AppUpdateService({
-    required this.owner,
-    required this.repository,
-    http.Client? client,
+    FirebaseFirestore? firestore,
+    FirebaseStorage? storage,
     Dio? dio,
-  })  : _client = client ?? http.Client(),
+  })  : _firestore = firestore ?? FirebaseFirestore.instance,
+        _storage = storage ?? FirebaseStorage.instance,
         _dio = dio ?? Dio();
 
-  final String owner;
-  final String repository;
-  final http.Client _client;
+  final FirebaseFirestore _firestore;
+  final FirebaseStorage _storage;
   final Dio _dio;
 
-  Uri get _latestReleaseUri =>
-      Uri.parse('https://api.github.com/repos/$owner/$repository/releases/latest');
+  DocumentReference<Map<String, dynamic>> get _currentUpdateDoc =>
+      _firestore.collection('app_updates').doc('current');
 
-  Future<UpdateCheckResult> checkForUpdate({required String currentVersion}) async {
-    if (owner.trim().isEmpty || repository.trim().isEmpty) {
-      throw const AppUpdateException('GitHub owner/repository is not configured.');
-    }
+  /// Verifies required update metadata and checks that APK path resolves in Storage.
+  Future<UpdateConfigValidationResult> validateCurrentUpdateConfig() async {
+    final missingFields = <String>[];
+    final errors = <String>[];
+    var apkUrlResolved = false;
 
-    final response = await _client.get(
-      _latestReleaseUri,
-      headers: const {
-        'Accept': 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-    );
-
-    if (response.statusCode != 200) {
-      if (response.statusCode == 404) {
-        throw const AppUpdateException(
-          'No GitHub release found. Create a release first in your repository.',
-        );
-      }
-      throw AppUpdateException(
-        'GitHub API failed (${response.statusCode}). Please try again later.',
+    final snapshot = await _currentUpdateDoc.get();
+    if (!snapshot.exists) {
+      return const UpdateConfigValidationResult(
+        exists: false,
+        missingFields: <String>[],
+        errors: <String>['Document app_updates/current does not exist.'],
+        apkUrlResolved: false,
       );
     }
 
-    final decoded = jsonDecode(response.body);
-    if (decoded is! Map<String, dynamic>) {
-      throw const AppUpdateException('Invalid response from GitHub Releases API.');
+    final data = snapshot.data();
+    if (data == null) {
+      return const UpdateConfigValidationResult(
+        exists: true,
+        missingFields: <String>[],
+        errors: <String>['Document app_updates/current is empty.'],
+        apkUrlResolved: false,
+      );
     }
 
-    final release = GitHubRelease.fromJson(decoded);
-    if (release.tagName.trim().isEmpty) {
-      throw const AppUpdateException('Latest release tag is missing.');
+    final latestVersion = (data['latestVersion'] ?? '').toString().trim();
+    final apkStoragePath =
+        (data['apkStoragePath'] ?? data['storagePath'] ?? '').toString().trim();
+
+    if (latestVersion.isEmpty) {
+      missingFields.add('latestVersion');
+    }
+    if (apkStoragePath.isEmpty) {
+      missingFields.add('apkStoragePath');
     }
 
-    final latestVersion = _normalizeVersion(release.tagName);
+    if (apkStoragePath.isNotEmpty) {
+      try {
+        await _resolveStorageReference(apkStoragePath).getDownloadURL();
+        apkUrlResolved = true;
+      } catch (error) {
+        errors.add('Unable to resolve APK in Storage: $error');
+      }
+    }
+
+    return UpdateConfigValidationResult(
+      exists: true,
+      missingFields: missingFields,
+      errors: errors,
+      apkUrlResolved: apkUrlResolved,
+    );
+  }
+
+  /// Reads update metadata from Firestore and compares versions.
+  Future<UpdateCheckResult> checkForUpdate({required String currentVersion}) async {
+    final snapshot = await _currentUpdateDoc.get();
+    if (!snapshot.exists) {
+      throw const AppUpdateException('Update metadata is missing at app_updates/current.');
+    }
+
+    final data = snapshot.data();
+    if (data == null) {
+      throw const AppUpdateException('Update metadata is empty.');
+    }
+
+    final update = AppUpdateInfo.fromFirestore(data);
+    if (update.latestVersion.isEmpty) {
+      throw const AppUpdateException('Field latestVersion is required in app_updates/current.');
+    }
+    if (update.apkStoragePath.isEmpty) {
+      throw const AppUpdateException('Field apkStoragePath is required in app_updates/current.');
+    }
+
+    final latestVersion = _normalizeVersion(update.latestVersion);
     final installedVersion = _normalizeVersion(currentVersion);
+    final minimumVersion = _normalizeVersion(update.minimumVersion);
     final hasUpdate = _compareVersions(installedVersion, latestVersion) < 0;
+    final belowMinimum = minimumVersion.isNotEmpty
+        ? _compareVersions(installedVersion, minimumVersion) < 0
+        : false;
+    final isForceUpdate = update.forceUpdate || belowMinimum;
 
     return UpdateCheckResult(
       currentVersion: installedVersion,
       latestVersion: latestVersion,
-      release: release,
-      isUpdateAvailable: hasUpdate,
+      update: update,
+      isUpdateAvailable: hasUpdate || belowMinimum,
+      isForceUpdate: isForceUpdate,
+      minimumVersion: minimumVersion,
     );
   }
 
+  /// Downloads the APK from Firebase Storage and launches Android installer.
   Future<void> downloadAndInstallApk(
-    GitHubRelease release, {
+    AppUpdateInfo update, {
     void Function(int received, int total)? onReceiveProgress,
   }) async {
-    GitHubReleaseAsset? apkAsset;
-    for (final asset in release.assets) {
-      if (asset.isApk) {
-        apkAsset = asset;
-        break;
-      }
-    }
-
-    if (apkAsset == null || apkAsset.browserDownloadUrl.trim().isEmpty) {
-      throw const AppUpdateException('No APK asset found in this GitHub release.');
-    }
+    final storageRef = _resolveStorageReference(update.apkStoragePath);
+    final downloadUrl = await storageRef.getDownloadURL();
+    final fileName = storageRef.name.isEmpty ? 'app-release.apk' : storageRef.name;
 
     final tempDir = await getTemporaryDirectory();
-    final filePath = '${tempDir.path}/${apkAsset.name}';
+    final filePath = '${tempDir.path}/$fileName';
 
     try {
       await _dio.download(
-        apkAsset.browserDownloadUrl,
+        downloadUrl,
         filePath,
         onReceiveProgress: onReceiveProgress,
         options: Options(
@@ -127,12 +185,11 @@ class AppUpdateService {
         ),
       );
     } catch (_) {
-      throw const AppUpdateException('Failed to download APK. Please check your connection.');
+      throw const AppUpdateException('Failed to download APK from Firebase Storage.');
     }
 
     if (!Platform.isAndroid) {
-      await openReleasePage(release);
-      return;
+      throw const AppUpdateException('APK installation is only supported on Android devices.');
     }
 
     final openResult = await OpenFilex.open(filePath);
@@ -141,16 +198,12 @@ class AppUpdateService {
     }
   }
 
-  Future<void> openReleasePage(GitHubRelease release) async {
-    final url = release.htmlUrl.trim();
-    if (url.isEmpty) {
-      throw const AppUpdateException('Release page URL is missing.');
+  Reference _resolveStorageReference(String rawPath) {
+    final path = rawPath.trim();
+    if (path.startsWith('gs://') || path.startsWith('https://')) {
+      return _storage.refFromURL(path);
     }
-
-    final uri = Uri.tryParse(url);
-    if (uri == null || !await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-      throw const AppUpdateException('Unable to open release page.');
-    }
+    return _storage.ref(path);
   }
 
   String _normalizeVersion(String version) {

@@ -26,9 +26,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  static const String _githubOwner = 'dieyfajri';
-  static const String _githubRepository = 'key_record';
-
   late DateTime _now;
   late Timer _clockTimer;
   final TextEditingController _searchController = TextEditingController();
@@ -36,6 +33,7 @@ class _HomeScreenState extends State<HomeScreen> {
       KeyRecordRepository.watchKeysInUse();
   late final AppUpdateService _appUpdateService;
   bool _checkingUpdateFromNotification = false;
+  bool _startupUpdateChecked = false;
 
   @override
   void initState() {
@@ -46,13 +44,11 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() {});
       }
     });
-    _appUpdateService = AppUpdateService(
-      owner: _githubOwner,
-      repository: _githubRepository,
-    );
+    _appUpdateService = AppUpdateService();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       AppNotificationService.onNotificationReceived = _onNotificationReceived;
       AppNotificationService.start();
+      _checkForUpdatesOnStartup();
     });
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) {
@@ -80,21 +76,38 @@ class _HomeScreenState extends State<HomeScreen> {
 
     _checkingUpdateFromNotification = true;
     try {
-      final info = await PackageInfo.fromPlatform();
-      final result = await _appUpdateService.checkForUpdate(currentVersion: info.version);
-      if (!mounted || !result.isUpdateAvailable) {
-        return;
-      }
-      await showAppUpdateDialog(
-        context: context,
-        result: result,
-        appUpdateService: _appUpdateService,
-      );
+      await _checkAndPromptForUpdate();
     } catch (error) {
       debugPrint('Auto update check failed: $error');
     } finally {
       _checkingUpdateFromNotification = false;
     }
+  }
+
+  Future<void> _checkForUpdatesOnStartup() async {
+    if (_startupUpdateChecked || !mounted) {
+      return;
+    }
+    _startupUpdateChecked = true;
+
+    try {
+      await _checkAndPromptForUpdate();
+    } catch (error) {
+      debugPrint('Startup update check failed: $error');
+    }
+  }
+
+  Future<void> _checkAndPromptForUpdate() async {
+    final info = await PackageInfo.fromPlatform();
+    final result = await _appUpdateService.checkForUpdate(currentVersion: info.version);
+    if (!mounted || !result.isUpdateAvailable) {
+      return;
+    }
+    await showAppUpdateDialog(
+      context: context,
+      result: result,
+      appUpdateService: _appUpdateService,
+    );
   }
 
   @override

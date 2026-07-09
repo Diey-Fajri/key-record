@@ -15,14 +15,12 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  static const String _githubOwner = 'dieyfajri';
-  static const String _githubRepository = 'key_record';
-
   final TextEditingController _usernameController = TextEditingController();
   late final AppUpdateService _appUpdateService;
   bool _saving = false;
   bool _refreshing = false;
   bool _checkingUpdate = false;
+  bool _validatingUpdateConfig = false;
   bool _loadingVersion = true;
   bool _editingProfile = false;
   DateTime? _lastSyncAt;
@@ -33,10 +31,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    _appUpdateService = AppUpdateService(
-      owner: _githubOwner,
-      repository: _githubRepository,
-    );
+    _appUpdateService = AppUpdateService();
     _usernameController.text = AuthService.activeUser;
     _visibleUsername = AuthService.activeUser.trim().isEmpty ? '-' : AuthService.activeUser.trim();
     _loadAppVersion();
@@ -241,6 +236,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const SizedBox(height: 6),
                     Text(
+                      'Update source: Firebase Storage (metadata: app_updates/current)',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.black54,
+                          ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
                       _lastUpdateCheckedAt == null
                           ? 'Last checked: Never'
                           : 'Last checked: ${_formatDateTime(_lastUpdateCheckedAt!)}',
@@ -263,6 +265,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         backgroundColor: const Color(0xFF1565C0),
                         foregroundColor: Colors.white,
                         minimumSize: const Size.fromHeight(50),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: (_validatingUpdateConfig || _checkingUpdate)
+                          ? null
+                          : _validateUpdateConfig,
+                      icon: _validatingUpdateConfig
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.rule_folder_outlined),
+                      label: Text(
+                        _validatingUpdateConfig
+                            ? 'Validating config...'
+                            : 'Validate Update Config',
                       ),
                     ),
                   ],
@@ -405,6 +425,65 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } finally {
       if (mounted) {
         setState(() => _checkingUpdate = false);
+      }
+    }
+  }
+
+  Future<void> _validateUpdateConfig() async {
+    setState(() => _validatingUpdateConfig = true);
+    final messenger = ScaffoldMessenger.of(context);
+
+    try {
+      final result = await _appUpdateService.validateCurrentUpdateConfig();
+      if (!mounted) return;
+
+      if (result.isValid) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Update config valid. Firebase update is ready.'),
+            backgroundColor: Color(0xFF2E7D32),
+          ),
+        );
+        return;
+      }
+
+      final lines = <String>[];
+      if (!result.exists) {
+        lines.add('- Missing document: app_updates/current');
+      }
+      if (result.missingFields.isNotEmpty) {
+        lines.add('- Missing fields: ${result.missingFields.join(', ')}');
+      }
+      if (!result.apkUrlResolved) {
+        lines.add('- APK URL not resolvable from Firebase Storage');
+      }
+      for (final error in result.errors) {
+        lines.add('- $error');
+      }
+
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Update Config Issues'),
+          content: SingleChildScrollView(
+            child: Text(lines.join('\n')),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text('Validation failed: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _validatingUpdateConfig = false);
       }
     }
   }
