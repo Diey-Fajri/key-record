@@ -3,6 +3,13 @@ import 'package:flutter/material.dart';
 import '../../services/key_repository.dart';
 import '../smart_detail/smart_detail_screen.dart';
 
+String _displayLevelLabel(String level) {
+  if (level == 'B2' || level == 'B1') {
+    return 'Level $level';
+  }
+  return level;
+}
+
 class AllKeysScreen extends StatefulWidget {
   const AllKeysScreen({super.key});
 
@@ -51,7 +58,10 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
   ];
 
   bool get _navigationUsesLevel {
-    return _selectedNavigation != 'Master Key' && _selectedNavigation != 'Others';
+    return _selectedNavigation == 'All' ||
+        _selectedNavigation == 'Zone' ||
+        _selectedNavigation == 'Lot' ||
+        _selectedNavigation == 'Roller Shutter';
   }
 
   @override
@@ -165,7 +175,7 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
                     ),
                   ),
                   items: _levelOptions
-                      .map((level) => DropdownMenuItem(value: level, child: Text(level)))
+                      .map((level) => DropdownMenuItem(value: level, child: Text(_displayLevelLabel(level))))
                       .toList(),
                   onChanged: (value) {
                     if (value != null) {
@@ -206,7 +216,6 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
                         child: _LevelSection(
                           levelLabel: section.key,
                           records: section.value,
-                          selectedNavigation: _selectedNavigation,
                         ),
                       );
                     },
@@ -405,15 +414,15 @@ class _LevelSection extends StatelessWidget {
   const _LevelSection({
     required this.levelLabel,
     required this.records,
-    required this.selectedNavigation,
   });
 
   final String levelLabel;
   final List<KeyRecord> records;
-  final String selectedNavigation;
 
   @override
   Widget build(BuildContext context) {
+    final groupedRecords = _folderGroups();
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -427,7 +436,7 @@ class _LevelSection extends StatelessWidget {
           Row(
             children: [
               Text(
-                levelLabel,
+                _displayLevelLabel(levelLabel),
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w700,
                     ),
@@ -450,16 +459,137 @@ class _LevelSection extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          ...records.map(
-            (record) => Padding(
+          ...groupedRecords.entries.map((entry) {
+            return Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: _KeyRecordCard(
-                record: record,
-                selectedNavigation: selectedNavigation,
+              child: _FolderGroupCard(
+                label: entry.key,
+                records: entry.value,
               ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Map<String, List<KeyRecord>> _folderGroups() {
+    final grouped = <String, List<KeyRecord>>{};
+
+    for (final record in records) {
+      final groupLabel = _folderLabelForRecord(record);
+      grouped.putIfAbsent(groupLabel, () => <KeyRecord>[]).add(record);
+    }
+
+    final sortedEntries = grouped.entries.toList()
+      ..sort((a, b) => _folderOrder(a.key).compareTo(_folderOrder(b.key)));
+
+    return {
+      for (final entry in sortedEntries) entry.key: entry.value,
+    };
+  }
+
+  String _folderLabelForRecord(KeyRecord record) {
+    if (record.category == 'Zone') {
+      return _zoneFolderLabel(record);
+    }
+
+    if (record.category == 'Roller Shutter') {
+      return levelLabel == 'Other' ? 'Roller Shutter' : 'Roller Shutter (${_displayLevelLabel(levelLabel)})';
+    }
+
+    return record.category;
+  }
+
+  String _zoneFolderLabel(KeyRecord record) {
+    final zoneRaw =
+        (record.metadata['zone']?.toString().trim().isNotEmpty ?? false)
+            ? record.metadata['zone'].toString().trim()
+            : record.zone.trim();
+    final upper = zoneRaw.toUpperCase();
+    final trailingAlpha = RegExp(r'([A-Z]+)$').firstMatch(upper)?.group(1);
+    if (trailingAlpha != null && trailingAlpha.isNotEmpty) {
+      return 'Zone $trailingAlpha';
+    }
+
+    if (upper.isNotEmpty) {
+      return 'Zone $upper';
+    }
+
+    return 'Zone Other';
+  }
+
+  int _folderOrder(String label) {
+    if (label.startsWith('Zone ')) {
+      return 0;
+    }
+    if (label.startsWith('Roller Shutter')) {
+      return 1;
+    }
+    if (label == 'Master Key') {
+      return 2;
+    }
+    if (label == 'Lot') {
+      return 3;
+    }
+    if (label == 'Others') {
+      return 4;
+    }
+    return 5;
+  }
+}
+
+class _FolderGroupCard extends StatelessWidget {
+  const _FolderGroupCard({
+    required this.label,
+    required this.records,
+  });
+
+  final String label;
+  final List<KeyRecord> records;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFB),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFDCE3E7)),
+      ),
+      child: ExpansionTile(
+        tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+        childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+        leading: const Icon(Icons.folder_outlined, color: Color(0xFF1E3A5F)),
+        title: Text(
+          label,
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+        trailing: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: const Color(0xFFE8F1F8),
+            borderRadius: BorderRadius.circular(100),
+          ),
+          child: Text(
+            '${records.length}',
+            style: const TextStyle(
+              color: Color(0xFF1E3A5F),
+              fontWeight: FontWeight.w700,
             ),
           ),
-        ],
+        ),
+        children: records
+            .map(
+              (record) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _KeyRecordCard(
+                  record: record,
+                ),
+              ),
+            )
+            .toList(growable: false),
       ),
     );
   }
@@ -468,16 +598,15 @@ class _LevelSection extends StatelessWidget {
 class _KeyRecordCard extends StatelessWidget {
   const _KeyRecordCard({
     required this.record,
-    required this.selectedNavigation,
   });
 
   final KeyRecord record;
-  final String selectedNavigation;
-
-  bool get _showBorrowerDetails => record.status == 'In Use';
 
   @override
   Widget build(BuildContext context) {
+    final primaryLabel = _primaryLabel(record);
+    final secondaryLabel = _secondaryLabel(record);
+
     return InkWell(
       borderRadius: BorderRadius.circular(10),
       onTap: () {
@@ -501,45 +630,19 @@ class _KeyRecordCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    _topKeyLabel(record),
+                    primaryLabel,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
                           fontWeight: FontWeight.w700,
                         ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${record.category} • ${record.keyName}',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.black54,
-                        ),
-                  ),
-                  if (_showBorrowerDetails) ...[
+                  if (secondaryLabel.isNotEmpty) ...[
                     const SizedBox(height: 6),
                     Text(
-                      'Taken by: ${_borrowerName(record)}',
+                      secondaryLabel,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Colors.black87,
-                            fontWeight: FontWeight.w600,
+                            color: Colors.black54,
                           ),
                     ),
-                    if (_companyDepartment(record).isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        _companyDepartment(record),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.black54,
-                            ),
-                      ),
-                    ],
-                    if (record.purpose.trim().isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        'Purpose: ${record.purpose.trim()}',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.black54,
-                            ),
-                      ),
-                    ],
                   ],
                 ],
               ),
@@ -555,42 +658,52 @@ class _KeyRecordCard extends StatelessWidget {
 
   String _topKeyLabel(KeyRecord record) {
     final level = _recordLevel(record);
-    final category = record.category;
-    final effectiveCategory = selectedNavigation == 'All' ||
-            selectedNavigation == 'High Risk' ||
-            selectedNavigation == 'Lost' ||
-            selectedNavigation == 'Hand Over' ||
-            selectedNavigation == 'Damaged' ||
-            selectedNavigation == 'Replaced'
-        ? category
-        : selectedNavigation;
-
-    if (effectiveCategory == 'Zone') {
+    if (record.category == 'Zone') {
       final zoneValue = (record.metadata['zone']?.toString() ?? '').trim();
       return _combineLevelAndValue(level, zoneValue.isNotEmpty ? zoneValue : record.zone);
     }
 
-    if (effectiveCategory == 'Roller Shutter') {
-      final rollerNo = (record.metadata['rollerNumber']?.toString() ?? '').trim();
-      final fallback = (record.metadata['rollerLevelNo']?.toString() ?? record.keyName).trim();
-      return _combineLevelAndValue(level, rollerNo.isNotEmpty ? rollerNo : fallback);
-    }
-
-    if (effectiveCategory == 'Master Key') {
+    if (record.category == 'Master Key') {
       final master = (record.metadata['masterKey']?.toString() ?? '').trim();
-      return master.isNotEmpty ? master : record.keyName;
+      final value = master.isNotEmpty ? master : record.keyName;
+      return _combineLevelAndValue(level, value);
     }
 
-    if (effectiveCategory == 'Lot') {
+    if (record.category == 'Lot') {
       final lotNo = (record.metadata['lotKey']?.toString() ?? '').trim();
       return _combineLevelAndValue(level, lotNo.isNotEmpty ? lotNo : record.keyName);
     }
 
-    if (effectiveCategory == 'Others') {
-      return record.keyName.isNotEmpty ? record.keyName : 'Unnamed Key';
+    if (record.category == 'Roller Shutter') {
+      final rollerNo = (record.metadata['rollerNumber']?.toString() ?? '').trim();
+      final fallback = record.keyName.trim();
+      return _combineLevelAndValue(level, rollerNo.isNotEmpty ? rollerNo : fallback);
     }
 
-    return record.keyName.isNotEmpty ? record.keyName : 'Unnamed Key';
+    if (record.category == 'High Risk' || record.category == 'Others') {
+      return _combineLevelAndValue(level, record.keyName);
+    }
+
+    return _combineLevelAndValue(level, record.keyName);
+  }
+
+  String _primaryLabel(KeyRecord record) {
+    if (record.category == 'Roller Shutter') {
+      return 'Roller Shutter';
+    }
+    return _topKeyLabel(record);
+  }
+
+  String _secondaryLabel(KeyRecord record) {
+    if (record.category != 'Roller Shutter') {
+      return '';
+    }
+
+    final level = _recordLevel(record);
+    final rollerNo = (record.metadata['rollerNumber']?.toString() ?? '').trim();
+    final fallback = record.keyName.trim();
+    final number = rollerNo.isNotEmpty ? rollerNo : fallback;
+    return _combineLevelAndValue(level, number);
   }
 
   String _recordLevel(KeyRecord record) {
@@ -650,26 +763,6 @@ class _KeyRecordCard extends StatelessWidget {
     return cleanLevel.isNotEmpty ? cleanLevel : 'Unnamed Key';
   }
 
-  String _borrowerName(KeyRecord record) {
-    final borrower = record.borrowerName.trim();
-    return borrower.isEmpty ? 'member' : borrower;
-  }
-
-  String _companyDepartment(KeyRecord record) {
-    final company = record.company.trim();
-    final department = record.metadata['department']?.toString().trim() ?? '';
-
-    if (company.isNotEmpty && department.isNotEmpty) {
-      return 'Company / Department: $company / $department';
-    }
-    if (company.isNotEmpty) {
-      return 'Company: $company';
-    }
-    if (department.isNotEmpty) {
-      return 'Department: $department';
-    }
-    return '';
-  }
 }
 
 class _StatusChip extends StatelessWidget {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
 import '../../services/key_repository.dart';
+import '../../widget/beautiful_submit_button.dart';
 import '../event_log/event_log_screen.dart';
 
 class RegisterNewKeyScreen extends StatefulWidget {
@@ -13,6 +14,7 @@ class RegisterNewKeyScreen extends StatefulWidget {
 class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
   final _formKey = GlobalKey<FormState>();
   final _zoneController = TextEditingController();
+  final _masterLevelController = TextEditingController();
   final _masterKeyController = TextEditingController();
   final _lotKeyController = TextEditingController();
   final _rollerLevelNoController = TextEditingController();
@@ -33,6 +35,7 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
   String _location = 'Mall';
   String _level = 'B2';
   String _status = 'Available';
+  bool _isSubmitting = false;
 
   static const List<String> _categories = [
     'Zone',
@@ -86,6 +89,7 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
   @override
   void dispose() {
     _zoneController.dispose();
+    _masterLevelController.dispose();
     _masterKeyController.dispose();
     _lotKeyController.dispose();
     _rollerLevelNoController.dispose();
@@ -170,21 +174,28 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                       },
                     ),
                     const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      initialValue: _level,
-                      decoration: _inputDecoration('Level', Icons.stairs),
-                      items: _getLevelOptions()
-                          .map((level) => DropdownMenuItem(
-                                value: level,
-                                child: Text(level),
-                              ))
-                          .toList(),
-                      onChanged: (value) {
-                        if (value != null) {
-                          setState(() => _level = value);
-                        }
-                      },
-                    ),
+                    if (_category == 'Master Key')
+                      TextFormField(
+                        controller: _masterLevelController,
+                        decoration: _inputDecoration('Level (Optional)', Icons.stairs),
+                        validator: _optional,
+                      )
+                    else
+                      DropdownButtonFormField<String>(
+                        initialValue: _level,
+                        decoration: _inputDecoration('Level', Icons.stairs),
+                        items: _getLevelOptions()
+                            .map((level) => DropdownMenuItem(
+                                  value: level,
+                              child: Text(_levelDisplayLabel(level)),
+                                ))
+                            .toList(),
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _level = value);
+                          }
+                        },
+                      ),
                     const SizedBox(height: 12),
                     if (_category == 'Zone' || _category == 'Others' || _category == 'High Risk') ...[
                       TextFormField(
@@ -329,18 +340,12 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                       ),
                     ],
                     const SizedBox(height: 24),
-                    FilledButton.icon(
+                    BeautifulSubmitButton(
+                      isLoading: _isSubmitting,
                       onPressed: _submit,
-                      icon: const Icon(Icons.save),
-                      label: const Text('Submit'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF00695C),
-                        foregroundColor: Colors.white,
-                        minimumSize: const Size.fromHeight(52),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
+                      idleLabel: 'Submit',
+                      loadingLabel: 'Submitting...',
+                      icon: Icons.save,
                     ),
                   ],
                 ),
@@ -392,6 +397,10 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
   }
 
   Future<void> _submit() async {
+    if (_isSubmitting) {
+      return;
+    }
+
     if (!(_formKey.currentState?.validate() ?? false)) {
       return;
     }
@@ -406,7 +415,7 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
 
     final category = _cleanChoice(_category);
     final location = _cleanChoice(_location);
-    final level = _cleanChoice(_level);
+    final level = _effectiveLevel();
     final status = _cleanChoice(_status);
     final keyName = _resolveKeyName();
     final keyId = _generateKeyId();
@@ -433,15 +442,30 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
     final recordedBy = AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin';
     final finalStatus = status.isEmpty ? 'Available' : status;
 
-    await KeyRecordRepository.registerNewKey(
-      keyId: keyId,
-      zone: _zoneController.text.trim().isEmpty ? location : _zoneController.text.trim(),
-      keyName: keyName,
-      category: category,
-      status: finalStatus,
-      recordedBy: recordedBy,
-      metadata: metadata,
-    );
+    setState(() => _isSubmitting = true);
+    try {
+      await KeyRecordRepository.registerNewKey(
+        keyId: keyId,
+        zone: _zoneController.text.trim().isEmpty ? location : _zoneController.text.trim(),
+        keyName: keyName,
+        category: category,
+        status: finalStatus,
+        recordedBy: recordedBy,
+        metadata: metadata,
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to submit key registration: $error')),
+      );
+      return;
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
+    }
 
     if (!mounted) return;
 
@@ -477,12 +501,16 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
   }
 
   String _generateKeyId() {
+    final levelToken = _effectiveLevel()
+      .replaceAll('Level ', 'L')
+      .replaceAll(' ', '')
+      .toUpperCase();
     final baseId = _category == 'Zone' || _category == 'Others' || _category == 'High Risk'
-        ? _zoneController.text.trim()
+      ? [if (levelToken.isNotEmpty) levelToken, _zoneController.text.trim()].where((value) => value.isNotEmpty).join('-')
         : _category == 'Master Key'
-            ? _masterKeyController.text.trim()
+        ? [if (levelToken.isNotEmpty) levelToken, _masterKeyController.text.trim()].where((value) => value.isNotEmpty).join('-')
             : _category == 'Lot'
-                ? _lotKeyController.text.trim()
+          ? [if (levelToken.isNotEmpty) levelToken, _lotKeyController.text.trim()].where((value) => value.isNotEmpty).join('-')
                 : _rollerLevelNoController.text.trim();
 
     final fallbackBase = baseId.isEmpty ? _location : baseId;
@@ -511,12 +539,27 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
     return value.trim();
   }
 
+  String _levelDisplayLabel(String level) {
+    if (level == 'B2' || level == 'B1') {
+      return 'Level $level';
+    }
+    return level;
+  }
+
+  String _effectiveLevel() {
+    if (_category == 'Master Key') {
+      return _masterLevelController.text.trim();
+    }
+    return _cleanChoice(_level);
+  }
+
   void _clearFieldsForCategory(String category) {
     if (category != 'Zone' && category != 'Others' && category != 'High Risk') {
       _zoneController.clear();
     }
     if (category != 'Master Key') {
       _masterKeyController.clear();
+      _masterLevelController.clear();
     }
     if (category != 'Lot') {
       _lotKeyController.clear();

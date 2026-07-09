@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../core/app_action_theme.dart';
 import '../../services/key_repository.dart';
+import '../../widget/beautiful_submit_button.dart';
 
 enum NoReturnAction { lost, noReturn, maintenance }
 
@@ -17,6 +19,7 @@ class _NoReturnScreenState extends State<NoReturnScreen> {
   final _remarksController = TextEditingController();
   NoReturnAction? _selectedAction;
   final List<KeyRecord> _selectedKeys = [];
+  bool _isSubmitting = false;
 
   String get _currentUserName => 'Admin User';
 
@@ -152,16 +155,13 @@ class _NoReturnScreenState extends State<NoReturnScreen> {
             const SizedBox(height: 16),
             _buildReadOnlyField('Date & Time', _formatDateTime(DateTime.now()), Icons.access_time),
             const SizedBox(height: 24),
-            FilledButton.icon(
+            BeautifulSubmitButton(
+              isLoading: _isSubmitting,
               onPressed: _selectedKeys.isEmpty ? null : _submitForm,
-              icon: const Icon(Icons.save),
-              label: const Text('Submit'),
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF00695C),
-                foregroundColor: Colors.white,
-                minimumSize: const Size.fromHeight(52),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
+              idleLabel: 'Submit',
+              loadingLabel: 'Submitting action...',
+              icon: Icons.save,
+              backgroundColor: AppActionTheme.primary,
             ),
           ],
         ),
@@ -319,24 +319,42 @@ class _NoReturnScreenState extends State<NoReturnScreen> {
   }
 
   Future<void> _submitForm() async {
+    if (_isSubmitting) {
+      return;
+    }
+
     if (_selectedAction == null || _selectedKeys.isEmpty) {
       return;
     }
 
     final actionName = _actionLabel;
-    for (final record in _selectedKeys) {
-      switch (_selectedAction) {
-        case NoReturnAction.lost:
-          await KeyRecordRepository.markLost(record);
-          break;
-        case NoReturnAction.noReturn:
-          await KeyRecordRepository.markNoReturn(record);
-          break;
-        case NoReturnAction.maintenance:
-          await KeyRecordRepository.markAtMaintenance(record);
-          break;
-        default:
-          break;
+    setState(() => _isSubmitting = true);
+    try {
+      for (final record in _selectedKeys) {
+        switch (_selectedAction) {
+          case NoReturnAction.lost:
+            await KeyRecordRepository.markLost(record);
+            break;
+          case NoReturnAction.noReturn:
+            await KeyRecordRepository.markNoReturn(record);
+            break;
+          case NoReturnAction.maintenance:
+            await KeyRecordRepository.markAtMaintenance(record);
+            break;
+          default:
+            break;
+        }
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to submit action: $error')),
+        );
+      }
+      return;
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
       }
     }
 

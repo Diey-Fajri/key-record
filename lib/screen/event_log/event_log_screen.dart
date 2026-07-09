@@ -45,6 +45,7 @@ class _EventLogScreenState extends State<EventLogScreen> {
   String _statusFilter = 'All';
   DateTime? _fromDate;
   DateTime? _toDate;
+  bool _isExporting = false;
 
   List<EventLog> _latestEvents = const [];
 
@@ -81,43 +82,90 @@ class _EventLogScreenState extends State<EventLogScreen> {
             tooltip: 'Refresh from Firestore',
           ),
           IconButton(
-            onPressed: _exportExcel,
-            icon: const Icon(Icons.download),
+            onPressed: _isExporting ? null : _exportExcel,
+            icon: _isExporting
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                : const Icon(Icons.download),
             tooltip: 'Export Excel',
           ),
         ],
       ),
       body: SafeArea(
-        child: StreamBuilder<List<EventLog>>(
-          stream: _eventsStream,
-          builder: (context, snapshot) {
-            final events = snapshot.data ?? const [];
-            _latestEvents = events;
+        child: Stack(
+          children: [
+            StreamBuilder<List<EventLog>>(
+              stream: _eventsStream,
+              builder: (context, snapshot) {
+                final events = snapshot.data ?? const [];
+                _latestEvents = events;
 
-            if (snapshot.connectionState == ConnectionState.waiting && events.isEmpty) {
-              return const Center(child: CircularProgressIndicator());
-            }
+                if (snapshot.connectionState == ConnectionState.waiting && events.isEmpty) {
+                  return const Center(child: CircularProgressIndicator());
+                }
 
-            final filteredEvents = _filterEvents(events);
-            final sortedEvents = _sortEvents(filteredEvents);
+                final filteredEvents = _filterEvents(events);
+                final sortedEvents = _sortEvents(filteredEvents);
 
-            return Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  _buildWhatsNewCard(sortedEvents),
-                  const SizedBox(height: 12),
-                  _buildFilterRow(context),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: sortedEvents.isEmpty
-                        ? const Center(child: Text('No matching event logs found.'))
-                        : _buildSimpleList(sortedEvents),
+                return Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      _buildWhatsNewCard(sortedEvents),
+                      const SizedBox(height: 12),
+                      _buildFilterRow(context),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: sortedEvents.isEmpty
+                            ? const Center(child: Text('No matching event logs found.'))
+                            : _buildSimpleList(sortedEvents),
+                      ),
+                    ],
                   ),
-                ],
+                );
+              },
+            ),
+            if (_isExporting)
+              Positioned.fill(
+                child: ColoredBox(
+                  color: Colors.black45,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const CircularProgressIndicator(),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Downloading record...',
+                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Please wait while the Excel file is prepared and saved.',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               ),
-            );
-          },
+          ],
         ),
       ),
     );
@@ -342,6 +390,14 @@ class _EventLogScreenState extends State<EventLogScreen> {
   }
 
   Future<void> _exportExcel() async {
+    if (_isExporting) {
+      return;
+    }
+
+    setState(() {
+      _isExporting = true;
+    });
+
     try {
       await KeyRecordRepository.refreshEventLogsFromFirestore();
       if (!mounted) return;
@@ -442,6 +498,12 @@ class _EventLogScreenState extends State<EventLogScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Export failed: $error')),
       );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isExporting = false;
+        });
+      }
     }
   }
 
@@ -628,7 +690,7 @@ class _EventLogScreenState extends State<EventLogScreen> {
     final row = _ExportTransactionRow(
       date: effectiveDate,
       borrowerName: event.borrowerName,
-      icPassport: event.icPassport,
+      icPassport: _exportIcPassport(event),
       phoneNumber: event.phoneNumber,
       departmentCompany: _departmentCompany(event),
       keyName: _keyForTable(event),
@@ -637,6 +699,17 @@ class _EventLogScreenState extends State<EventLogScreen> {
     );
     row.returnedAt = returnedAt;
     return row;
+  }
+
+  String _exportIcPassport(EventLog event) {
+    final borrowerCategory = event.metadata['borrowerCategory']?.toString().trim().toLowerCase() ?? '';
+    final icPassport = event.icPassport.trim();
+
+    if (borrowerCategory == 'staff') {
+      return 'staff';
+    }
+
+    return icPassport;
   }
 
   String _purposeForExport(EventLog event) {
@@ -649,14 +722,19 @@ class _EventLogScreenState extends State<EventLogScreen> {
   }
 
   String _departmentCompany(EventLog event) {
+    final borrowerCategory = event.metadata['borrowerCategory']?.toString().trim().toLowerCase() ?? '';
     final department = event.metadata['department']?.toString().trim() ?? '';
     final company = event.company.trim();
 
-    if (department.isNotEmpty && company.isNotEmpty) {
-      return '$company / $department';
+    if (borrowerCategory == 'staff') {
+      return department.isNotEmpty ? 'Department $department' : 'Department';
     }
 
-    return company.isNotEmpty ? company : department;
+    if (company.isNotEmpty) {
+      return 'Company $company';
+    }
+
+    return department.isNotEmpty ? 'Department $department' : '';
   }
 
   String _keyForTable(EventLog event) {

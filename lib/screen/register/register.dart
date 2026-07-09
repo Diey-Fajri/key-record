@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
 import '../../services/key_repository.dart' as repository;
+import '../../widget/beautiful_submit_button.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key, this.initialKeyId});
@@ -31,14 +32,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _handoverTimeController = TextEditingController();
   final _handoverDialogFormKey = GlobalKey<FormState>();
   final List<AvailableKey> _selectedKeys = [];
-  final List<Borrower> _savedBorrowers = List<Borrower>.from(
-    _savedBorrowerStore,
-  );
+  final List<repository.Borrower> _savedBorrowers = <repository.Borrower>[];
+  StreamSubscription<List<repository.Borrower>>? _savedBorrowersSubscription;
   late DateTime _now;
   late Timer _clockTimer;
   bool _saveBorrower = true;
-  AvailableKey? _selectedKeyFromSearch;
   bool _initialKeyHandled = false;
+  bool _isSubmitting = false;
   String _borrowerCategory = 'Staff';
   String _takeStatus = 'In Use';
   static const List<String> _borrowerCategories = [
@@ -64,11 +64,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
         setState(() => _now = DateTime.now());
       }
     });
+
+    _savedBorrowersSubscription = repository.KeyRecordRepository.watchSavedBorrowers().listen((items) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _savedBorrowers
+          ..clear()
+          ..addAll(items);
+      });
+    });
   }
 
   @override
   void dispose() {
     _clockTimer.cancel();
+    _savedBorrowersSubscription?.cancel();
     _nameController.dispose();
     _icController.dispose();
     _phoneController.dispose();
@@ -109,10 +121,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       stream: repository.KeyRecordRepository.watchAllKeys(),
                       builder: (context, snapshot) {
                         final allKeys = snapshot.data ?? const [];
-                        final selectedIds = _selectedKeys.map((item) => item.keyId).toSet();
+                        final selectedIds = _selectedKeys.map((item) => item.docId).toSet();
                         final availableKeys = allKeys
-                            .where((key) => key.status == 'Available' && !selectedIds.contains(key.keyId))
+                            .where((key) => key.status == 'Available' && !selectedIds.contains(key.docId ?? key.keyId))
                             .map((record) => AvailableKey(
+                                  docId: record.docId ?? record.keyId,
                                   keyId: record.keyId,
                                   zone: _keyLevelZone(record),
                                   name: record.keyName,
@@ -124,7 +137,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                         return Autocomplete<AvailableKey>(
                           displayStringForOption: (key) =>
-                              key.zone,
+                              key.searchLabel,
                           optionsBuilder: (value) {
                             final query = value.text.trim().toLowerCase();
                             if (query.isEmpty) {
@@ -139,7 +152,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             });
                           },
                           onSelected: (key) {
-                            _selectedKeyFromSearch = key;
+                            _commitSelectedKey(key);
                           },
                           fieldViewBuilder:
                               (context, controller, focusNode, onSubmitted) {
@@ -153,7 +166,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 Icons.search,
                                 hint: 'Type key ID, level, zone, or name',
                               ),
-                              onChanged: (_) => _selectedKeyFromSearch = null,
                             );
                           },
                           optionsViewBuilder: (context, onSelected, options) {
@@ -173,8 +185,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                     itemBuilder: (context, index) {
                                       final key = options.elementAt(index);
                                       return ListTile(
-                                        title: Text(key.zone),
-                                        subtitle: Text(key.name),
+                                        leading: const Icon(Icons.vpn_key_outlined),
+                                        title: Text(key.displayLabel),
+                                        subtitle: Text('ID: ${key.keyId}'),
                                         trailing: _AvailabilityTag(
                                           status: key.status,
                                         ),
@@ -190,37 +203,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       },
                     ),
                     const SizedBox(height: 12),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: FilledButton.icon(
-                        onPressed: _addSelectedKey,
-                        icon: const Icon(Icons.add),
-                        label: const Text('Add Key'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFF00695C),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
                     if (_selectedKeys.isEmpty)
                       const _EmptySelection()
                     else
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: _selectedKeys.map((key) {
-                          return InputChip(
-                            avatar: const Icon(Icons.vpn_key_outlined),
-                            label: Text('${key.zone} ${key.name}'),
-                            onDeleted: () {
-                              setState(() => _selectedKeys.remove(key));
-                            },
-                          );
-                        }).toList(),
+                      _SelectedKeysPanel(
+                        keys: _selectedKeys,
+                        onRemove: (key) {
+                          setState(() => _selectedKeys.remove(key));
+                        },
                       ),
                   ],
                 ),
@@ -246,17 +236,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         if (value != null) {
                           setState(() {
                             _borrowerCategory = value;
+                            if (value == 'Staff') {
+                              _icController.clear();
+                            }
                           });
                         }
                       },
                     ),
                     const SizedBox(height: 12),
-                    Autocomplete<Borrower>(
+                    Autocomplete<repository.Borrower>(
                       displayStringForOption: (option) => option.name,
                       optionsBuilder: (value) {
                         final query = value.text.trim().toLowerCase();
                         if (query.isEmpty) {
-                          return const Iterable<Borrower>.empty();
+                          return const Iterable<repository.Borrower>.empty();
                         }
                         return _savedBorrowers.where((borrower) {
                           return borrower.name.toLowerCase().contains(query);
@@ -290,10 +283,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       TextFormField(
                         controller: _icController,
                         textInputAction: TextInputAction.next,
-                        decoration: _inputDecoration(
-                          'IC / Passport No.',
-                          Icons.credit_card,
-                        ),
+                        decoration: _inputDecoration('IC / Passport No.', Icons.credit_card),
                         validator: _required,
                       ),
                       const SizedBox(height: 12),
@@ -414,18 +404,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              FilledButton.icon(
+              BeautifulSubmitButton(
+                isLoading: _isSubmitting,
                 onPressed: _submit,
-                icon: const Icon(Icons.assignment_turned_in_outlined),
-                label: const Text('Submit'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF00695C),
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size.fromHeight(52),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
+                idleLabel: 'Submit',
+                loadingLabel: 'Submitting...',
+                icon: Icons.assignment_turned_in_outlined,
               ),
             ],
           ),
@@ -434,11 +418,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  void _addSelectedKey() {
-    final selected = _selectedKeyFromSearch;
-
-    if (selected == null) {
-      _showMessage('Please select a key from the search list first.');
+  void _commitSelectedKey(AvailableKey selected) {
+    if (!mounted) {
       return;
     }
 
@@ -447,14 +428,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
-    if (_selectedKeys.any((key) => key.keyId == selected.keyId)) {
+    if (_selectedKeys.any((key) => key.docId == selected.docId)) {
       _showMessage('This key is already added.');
       return;
     }
 
     setState(() {
       _selectedKeys.add(selected);
-      _selectedKeyFromSearch = null;
       _keySearchFieldController?.clear();
     });
   }
@@ -476,18 +456,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (!mounted) {
         return;
       }
-      if (_selectedKeys.any((selected) => selected.keyId == key.keyId)) {
+      if (_selectedKeys.any((selected) => selected.docId == key.docId)) {
         return;
       }
       setState(() {
         _selectedKeys.add(key);
-        _selectedKeyFromSearch = null;
         _keySearchFieldController?.clear();
       });
     });
   }
 
-  void _selectBorrower(Borrower borrower) {
+  void _selectBorrower(repository.Borrower borrower) {
     setState(() {
       _nameController.text = borrower.name;
       _icController.text = borrower.icPassport;
@@ -498,6 +477,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _submit() async {
+    if (_isSubmitting) {
+      return;
+    }
+
     if (_selectedKeys.isEmpty) {
       _showMessage('Please add at least one available key.');
       return;
@@ -513,25 +496,27 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _showMessage('Please enter a valid handover date and time.');
       return;
     }
+    final currentKeys = await repository.KeyRecordRepository.watchAllKeys().first;
+    final keyByDocId = <String, repository.KeyRecord>{
+      for (final key in currentKeys)
+        if ((key.docId?.trim().isNotEmpty ?? false)) key.docId!.trim(): key,
+    };
     final selectedRecords = _selectedKeys
-        .map((selected) => repository.KeyRecordRepository.searchKeys(selected.keyId)
-            .where((record) => record.keyId == selected.keyId)
-            .toList())
-        .where((matches) => matches.isNotEmpty)
-        .map((matches) => matches.first)
-        .toList();
+        .map((selected) => keyByDocId[selected.docId])
+        .whereType<repository.KeyRecord>()
+        .toList(growable: false);
     if (selectedRecords.length != _selectedKeys.length) {
       _showMessage('One or more selected keys are no longer available. Please reselect keys.');
       return;
     }
     final borrower = repository.Borrower(
       name: borrowerName,
-      icPassport: _icController.text.trim(),
+      icPassport: _borrowerCategory == 'Staff' ? '' : _icController.text.trim(),
       phone: _phoneController.text.trim(),
       company: _companyController.text.trim(),
       department: _departmentController.text.trim(),
     );
-    final savedBorrower = _saveBorrowerIfNeeded();
+    final savedBorrower = await _saveBorrowerIfNeeded();
     final keyLabels = selectedRecords.map((record) => '${record.zone}/${record.keyName}').join(', ');
     final isHandOver = _takeStatus == 'Hand Over';
     final recordedBy = AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin';
@@ -541,29 +526,41 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
-    await repository.KeyRecordRepository.takeKeys(
-      selectedRecords,
-      borrower,
-      takenAt,
-      recordedBy: recordedBy,
-      transactionStatus: _takeStatus,
-      metadata: {
-        'borrowerCategory': _borrowerCategory,
-        'staffName': _borrowerCategory == 'Staff' ? borrowerName : '',
-        'othersName': _borrowerCategory == 'Others' ? borrowerName : '',
-        'department': _departmentController.text.trim(),
-        'purpose': _purposeController.text.trim(),
-        'remarks': _remarksController.text.trim(),
-        if (isHandOver) ...{
-          'documentReportNo': _documentReportNoController.text.trim(),
-          'handoverBy': _handoverByController.text.trim(),
-          'receivedBy': _receivedByController.text.trim(),
-          'witnessesBy': _witnessesByController.text.trim(),
-          'handoverDate': _handoverDateController.text.trim(),
-          'handoverTime': _handoverTimeController.text.trim(),
+    setState(() => _isSubmitting = true);
+    try {
+      await repository.KeyRecordRepository.takeKeys(
+        selectedRecords,
+        borrower,
+        takenAt,
+        recordedBy: recordedBy,
+        transactionStatus: _takeStatus,
+        metadata: {
+          'borrowerCategory': _borrowerCategory,
+          'staffName': _borrowerCategory == 'Staff' ? borrowerName : '',
+          'othersName': _borrowerCategory == 'Others' ? borrowerName : '',
+          'department': _departmentController.text.trim(),
+          'purpose': _purposeController.text.trim(),
+          'remarks': _remarksController.text.trim(),
+          if (isHandOver) ...{
+            'documentReportNo': _documentReportNoController.text.trim(),
+            'handoverBy': _handoverByController.text.trim(),
+            'receivedBy': _receivedByController.text.trim(),
+            'witnessesBy': _witnessesByController.text.trim(),
+            'handoverDate': _handoverDateController.text.trim(),
+            'handoverTime': _handoverTimeController.text.trim(),
+          },
         },
-      },
-    );
+      );
+    } catch (error) {
+      if (mounted) {
+        _showMessage('Failed to update all keys. Please retry. ($error)');
+      }
+      return;
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
+    }
     if (!mounted) return;
 
     final dialogLines = <String>[
@@ -703,42 +700,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return DateTime.tryParse('${date}T$normalizedTime');
   }
 
-  bool _saveBorrowerIfNeeded() {
+  Future<bool> _saveBorrowerIfNeeded() async {
     if (!_saveBorrower) {
       return false;
     }
 
-    final borrower = Borrower(
+    final borrower = repository.Borrower(
       name: _nameController.text.trim(),
       icPassport: _icController.text.trim(),
       phone: _phoneController.text.trim(),
       company: _companyController.text.trim(),
       department: _departmentController.text.trim(),
     );
-    final existingIndex = _savedBorrowerStore.indexWhere(
-      (saved) =>
-          saved.icPassport.toLowerCase() == borrower.icPassport.toLowerCase() ||
-          saved.name.toLowerCase() == borrower.name.toLowerCase(),
+    return await repository.KeyRecordRepository.saveBorrowerProfile(
+      borrower,
+      recordedBy: AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin',
     );
-
-    if (existingIndex == -1) {
-      _savedBorrowerStore.add(borrower);
-      _savedBorrowers.add(borrower);
-      return true;
-    }
-
-    _savedBorrowerStore[existingIndex] = borrower;
-    final localIndex = _savedBorrowers.indexWhere(
-      (saved) =>
-          saved.icPassport.toLowerCase() == borrower.icPassport.toLowerCase() ||
-          saved.name.toLowerCase() == borrower.name.toLowerCase(),
-    );
-    if (localIndex == -1) {
-      _savedBorrowers.add(borrower);
-    } else {
-      _savedBorrowers[localIndex] = borrower;
-    }
-    return false;
   }
 
   String? _required(String? value) {
@@ -893,63 +870,104 @@ class _EmptySelection extends StatelessWidget {
   }
 }
 
+class _SelectedKeysPanel extends StatelessWidget {
+  const _SelectedKeysPanel({
+    required this.keys,
+    required this.onRemove,
+  });
+
+  final List<AvailableKey> keys;
+  final ValueChanged<AvailableKey> onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F9FA),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE0E5E8)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Selected keys (${keys.length})',
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+          const SizedBox(height: 10),
+          ...keys.map((key) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFDCE4E8)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.vpn_key_outlined, color: Color(0xFF00695C)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            key.displayLabel,
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Key ID: ${key.keyId}',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: Colors.black54,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Remove key',
+                      onPressed: () => onRemove(key),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+}
+
 class AvailableKey {
   const AvailableKey({
+    required this.docId,
     required this.keyId,
     required this.zone,
     required this.name,
     required this.status,
   });
 
+  final String docId;
   final String keyId;
   final String zone;
   final String name;
   final String status;
+
+  String get displayLabel => '$zone • $name';
+
+  String get searchLabel => '$keyId $zone $name';
 }
-
-class Borrower {
-  const Borrower({
-    required this.name,
-    required this.icPassport,
-    required this.phone,
-    required this.company,
-    required this.department,
-  });
-
-  final String name;
-  final String icPassport;
-  final String phone;
-  final String company;
-  final String department;
-}
-
-final List<Borrower> _savedBorrowerStore = List<Borrower>.from(
-  _defaultBorrowers,
-);
-
-const List<Borrower> _defaultBorrowers = [
-  Borrower(
-    name: 'Ali',
-    icPassport: '900101-10-1234',
-    phone: '0123456789',
-    company: 'XYZ Contractor',
-    department: 'Maintenance',
-  ),
-  Borrower(
-    name: 'Nur Aisyah',
-    icPassport: 'A12345678',
-    phone: '0172223344',
-    company: 'Network Ops',
-    department: 'Operations',
-  ),
-  Borrower(
-    name: 'Kumar Raj',
-    icPassport: '850505-14-7788',
-    phone: '0198881122',
-    company: 'Logistics Partner',
-    department: 'Logistics',
-  ),
-];
 
 InputDecoration _inputDecoration(String label, IconData icon, {String? hint}) {
   return InputDecoration(

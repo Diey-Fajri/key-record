@@ -7,12 +7,14 @@ import '../../services/auth_service.dart';
 import '../../services/app_notification_service.dart';
 import '../../services/app_update_service.dart';
 import '../../services/key_repository.dart';
+import '../../core/app_action_theme.dart';
 import '../../widget/app_update_dialog.dart';
 import '../all_keys/all_keys_screen.dart';
 import '../event_log/event_log_screen.dart';
 import '../register/register.dart';
 import '../register/take_key_detail_screen.dart';
 import '../register_new_key/register_new_key_screen.dart';
+import '../saved_persons/saved_persons_screen.dart';
 import '../search/search_screen.dart';
 import '../settings/settings_screen.dart';
 
@@ -39,6 +41,11 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _now = DateTime.now();
+    _searchController.addListener(() {
+      if (mounted) {
+        setState(() {});
+      }
+    });
     _appUpdateService = AppUpdateService(
       owner: _githubOwner,
       repository: _githubRepository,
@@ -129,15 +136,32 @@ class _HomeScreenState extends State<HomeScreen> {
                         children: [
                           _HeaderSection(now: _now),
                           const SizedBox(height: 16),
-                          _SearchBar(
-                            controller: _searchController,
-                            onSubmitted: (value) {
-                              Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => SearchScreen(
-                                    initialQuery: value.trim(),
-                                  ),
-                                ),
+                          StreamBuilder<List<KeyRecord>>(
+                            stream: KeyRecordRepository.watchAllKeys(),
+                            builder: (context, snapshot) {
+                              final suggestions = KeyRecordRepository.searchKeyHints(
+                                _searchController.text,
+                              );
+                              return _SearchBar(
+                                controller: _searchController,
+                                suggestions: suggestions,
+                                onSubmitted: (value) {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => SearchScreen(
+                                        initialQuery: value.trim(),
+                                      ),
+                                    ),
+                                  );
+                                },
+                                onSuggestionSelected: (record) {
+                                  _searchController.clear();
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => TakeKeyDetailScreen(record: record),
+                                    ),
+                                  );
+                                },
                               );
                             },
                           ),
@@ -238,6 +262,13 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
+    if (label == 'Saved Persons') {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const SavedPersonsScreen()),
+      );
+      return;
+    }
+
     _showComingSoon(context, label);
   }
 
@@ -248,7 +279,17 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _returnKey(BuildContext context, KeyRecord record) async {
-    await KeyRecordRepository.returnKey(record);
+    try {
+      await KeyRecordRepository.returnKey(record);
+    } catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to return key: $error')),
+      );
+      return;
+    }
     if (!context.mounted) {
       return;
     }
@@ -279,8 +320,12 @@ class _HomeScreenState extends State<HomeScreen> {
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
               style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF2E7D32),
+                backgroundColor: AppActionTheme.success,
                 foregroundColor: Colors.white,
+                minimumSize: const Size(110, 44),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppActionTheme.buttonRadius),
+                ),
               ),
               child: const Text('Return All'),
             ),
@@ -497,36 +542,86 @@ class _HeaderValue extends StatelessWidget {
 }
 
 class _SearchBar extends StatelessWidget {
-  const _SearchBar({required this.controller, required this.onSubmitted});
+  const _SearchBar({
+    required this.controller,
+    required this.onSubmitted,
+    required this.suggestions,
+    required this.onSuggestionSelected,
+  });
 
   final TextEditingController controller;
   final ValueChanged<String> onSubmitted;
+  final List<KeyRecord> suggestions;
+  final ValueChanged<KeyRecord> onSuggestionSelected;
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
-      controller: controller,
-      onSubmitted: onSubmitted,
-      decoration: InputDecoration(
-        filled: true,
-        fillColor: Colors.white,
-        hintText: 'Search e.g. L8/190, SRV-ROOM-01, 0123456789, Zone-23B',
-        prefixIcon: const Icon(Icons.search),
-        suffixIcon: IconButton(
-          tooltip: 'Open search',
-          onPressed: () => onSubmitted(controller.text),
-          icon: const Icon(Icons.arrow_forward),
+    final showSuggestions = controller.text.trim().isNotEmpty && suggestions.isNotEmpty;
+
+    return Column(
+      children: [
+        TextField(
+          controller: controller,
+          onSubmitted: onSubmitted,
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.white,
+            hintText: 'Search key, level, zone, ID, borrower, company',
+            helperText: 'Flexible search with live hints',
+            prefixIcon: const Icon(Icons.search),
+            suffixIcon: IconButton(
+              tooltip: 'Open search',
+              onPressed: () => onSubmitted(controller.text),
+              icon: const Icon(Icons.arrow_forward),
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFFE0E5E8)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFFE0E5E8)),
+            ),
+          ),
         ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Color(0xFFE0E5E8)),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Color(0xFFE0E5E8)),
-        ),
-      ),
+        if (showSuggestions) ...[
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFFE0E5E8)),
+            ),
+            child: Column(
+              children: suggestions.map((record) {
+                return ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.vpn_key_outlined),
+                  title: Text(_searchHintTitle(record)),
+                  subtitle: Text('${record.keyId} • ${record.status}'),
+                  onTap: () => onSuggestionSelected(record),
+                );
+              }).toList(growable: false),
+            ),
+          ),
+        ],
+      ],
     );
+  }
+
+  String _searchHintTitle(KeyRecord record) {
+    final level = record.metadata['level']?.toString().trim() ?? '';
+    final zone = record.metadata['zone']?.toString().trim().isNotEmpty == true
+        ? record.metadata['zone'].toString().trim()
+        : record.zone.trim();
+    if (level.isNotEmpty && zone.isNotEmpty) {
+      return '$level/$zone • ${record.keyName}';
+    }
+    if (zone.isNotEmpty) {
+      return '$zone • ${record.keyName}';
+    }
+    return record.keyName;
   }
 }
 
@@ -690,8 +785,13 @@ class KeyInUseCard extends StatelessWidget {
                 icon: const Icon(Icons.assignment_turned_in_outlined),
                 label: Text('Return All Keys (${group.keys.length})'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF2E7D32),
-                  side: const BorderSide(color: Color(0xFF2E7D32)),
+                  foregroundColor: AppActionTheme.success,
+                  side: const BorderSide(color: AppActionTheme.success),
+                  backgroundColor: AppActionTheme.successTint,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppActionTheme.buttonRadius),
+                  ),
                 ),
               ),
             ),
@@ -797,10 +897,11 @@ class KeyInUseCard extends StatelessWidget {
                           FilledButton(
                             onPressed: () => onReturn(record),
                             style: FilledButton.styleFrom(
-                              backgroundColor: const Color(0xFF2E7D32),
+                              backgroundColor: AppActionTheme.success,
                               foregroundColor: Colors.white,
+                              minimumSize: const Size(96, 40),
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: BorderRadius.circular(AppActionTheme.buttonRadius),
                               ),
                             ),
                             child: const Text('Return'),
@@ -808,8 +909,10 @@ class KeyInUseCard extends StatelessWidget {
                           OutlinedButton(
                             onPressed: () => onDetail(record),
                             style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(88, 40),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: BorderRadius.circular(AppActionTheme.buttonRadius),
                               ),
                             ),
                             child: const Text('Detail'),
@@ -955,6 +1058,7 @@ class _NavigationItem {
 
 const List<_NavigationItem> _navigationItems = [
   _NavigationItem('Take a Key', Icons.person_add_alt_1_outlined),
+  _NavigationItem('Saved Persons', Icons.people_outline),
   _NavigationItem('Register New Key', Icons.add_card_outlined),
   _NavigationItem('Event Log', Icons.receipt_long_outlined),
   _NavigationItem('All Keys', Icons.list_alt_outlined),

@@ -17,6 +17,27 @@ class Borrower {
   final String phone;
   final String company;
   final String department;
+
+  Map<String, dynamic> toFirestore() {
+    return {
+      'name': name,
+      'icPassport': icPassport,
+      'phone': phone,
+      'company': company,
+      'department': department,
+    };
+  }
+
+  static Borrower fromFirestore(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data();
+    return Borrower(
+      name: data['name'] as String? ?? '',
+      icPassport: data['icPassport'] as String? ?? '',
+      phone: data['phone'] as String? ?? '',
+      company: data['company'] as String? ?? '',
+      department: data['department'] as String? ?? '',
+    );
+  }
 }
 
 class EventLog {
@@ -170,6 +191,7 @@ class EventLog {
 
 class KeyRecord {
   const KeyRecord({
+    this.docId,
     required this.keyId,
     required this.zone,
     required this.keyName,
@@ -184,6 +206,7 @@ class KeyRecord {
     this.metadata = const {},
   });
 
+  final String? docId;
   final String keyId;
   final String zone;
   final String keyName;
@@ -230,6 +253,7 @@ class KeyRecord {
     final metadata = metadataData is Map ? Map<String, dynamic>.from(metadataData) : <String, dynamic>{};
 
     return KeyRecord(
+      docId: doc.id,
       keyId: data['keyId'] as String? ?? doc.id,
       zone: data['zone'] as String? ?? '',
       keyName: data['keyName'] as String? ?? '',
@@ -246,6 +270,7 @@ class KeyRecord {
   }
 
   KeyRecord copyWith({
+    String? docId,
     String? keyId,
     String? zone,
     String? keyName,
@@ -260,6 +285,7 @@ class KeyRecord {
     Map<String, dynamic>? metadata,
   }) {
     return KeyRecord(
+      docId: docId ?? this.docId,
       keyId: keyId ?? this.keyId,
       zone: zone ?? this.zone,
       keyName: keyName ?? this.keyName,
@@ -376,12 +402,17 @@ class KeyRecordRepository {
     ),
   ];
 
+  static final List<Borrower> _savedBorrowers = <Borrower>[];
+
   static final StreamController<List<KeyRecord>> _keysController =
       StreamController<List<KeyRecord>>.broadcast()
         ..onListen = () => _keysController.add(List.unmodifiable(_keys));
   static final StreamController<List<EventLog>> _eventLogsController =
       StreamController<List<EventLog>>.broadcast()
         ..onListen = () => _eventLogsController.add(List.unmodifiable(_eventLogs));
+  static final StreamController<List<Borrower>> _savedBorrowersController =
+      StreamController<List<Borrower>>.broadcast()
+        ..onListen = () => _savedBorrowersController.add(List.unmodifiable(_savedBorrowers));
 
   static FirebaseFirestore get _firestore => FirebaseFirestore.instance;
 
@@ -396,27 +427,42 @@ class KeyRecordRepository {
       _firestore.collection('event_log');
   static CollectionReference<Map<String, dynamic>> get _notificationsCollection =>
       _firestore.collection('notifications');
+    static CollectionReference<Map<String, dynamic>> get _savedPersonsCollection =>
+      _firestore.collection('saved_persons');
 
   static Future<void> _saveKey(KeyRecord key) async {
     if (!_firestoreAvailable) return;
-    final normalizedKeyId = _normalizeKeyId(key.keyId);
-    final snapshot = await _keysCollection.get();
-    final matches = snapshot.docs.where((doc) {
-      final data = doc.data();
-      final docKeyId = data['keyId'] as String? ?? doc.id;
-      return _normalizeKeyId(docKeyId) == normalizedKeyId;
-    }).toList(growable: false);
+    final targetDocId = (key.docId?.trim().isNotEmpty ?? false)
+        ? key.docId!.trim()
+        : _keyDocIdForRecord(key);
+    final targetRef = _keysCollection.doc(targetDocId);
 
-    if (matches.isNotEmpty) {
-      await matches.first.reference.set(key.toFirestore(), SetOptions(merge: true));
-      // Clean up duplicates so one keyId maps to one Firestore document.
-      for (final duplicate in matches.skip(1)) {
-        await duplicate.reference.delete();
+    // Write deterministic doc first so updates are not blocked by full-collection scans.
+    await targetRef.set(key.toFirestore(), SetOptions(merge: true));
+
+    // Keep any legacy/random-ID docs in sync only for this same logical key.
+    final snapshot = await _keysCollection.get();
+    for (final doc in snapshot.docs) {
+      final existing = KeyRecord.fromFirestore(doc);
+      if (!_sameLogicalKey(existing, key) || doc.id == targetDocId) {
+        continue;
       }
+      await doc.reference.set(key.toFirestore(), SetOptions(merge: true));
+    }
+  }
+
+  static Future<void> _persistKeyToFirestore(KeyRecord key) async {
+    if (!_firestoreAvailable) {
       return;
     }
 
-    await _keysCollection.doc(_keyDocId(key.keyId)).set(key.toFirestore());
+    final targetDocId = key.docId?.trim() ?? '';
+    if (targetDocId.isNotEmpty) {
+      await _keysCollection.doc(targetDocId).set(key.toFirestore(), SetOptions(merge: true));
+      return;
+    }
+
+    await _saveKey(key);
   }
 
   // Firestore document IDs cannot contain '/'.
@@ -428,25 +474,205 @@ class KeyRecordRepository {
     return normalized.replaceAll('/', '_');
   }
 
+  static String _keyDocIdForRecord(KeyRecord key) {
+    final base = _logicalKeyIdentity(key)
+        .replaceAll('/', '_')
+        .replaceAll(' ', '_');
+    return base.isEmpty ? _keyDocId(key.keyId) : base;
+  }
+
   static String _normalizeKeyId(String keyId) {
     return keyId.trim().toUpperCase();
   }
 
   static String _dedupeIdentity(KeyRecord key) {
+    final docId = key.docId?.trim() ?? '';
+    if (docId.isNotEmpty) {
+      return 'DOC:$docId';
+    }
+    return _logicalKeyIdentity(key);
+  }
+
+  static String _logicalKeyIdentity(KeyRecord key) {
     final normalizedId = _normalizeKeyId(key.keyId);
-    if (normalizedId.isNotEmpty && normalizedId != 'UNKNOWN-KEY') {
-      return normalizedId;
+    final category = key.category.trim().toUpperCase();
+    final name = key.keyName.trim().toUpperCase();
+    final level = _normalizedRecordLevel(key);
+    final zone = _normalizedRecordZone(key);
+    return '$normalizedId|$category|$level|$zone|$name';
+  }
+
+  static String _normalizedRecordLevel(KeyRecord key) {
+    final metadataLevel = key.metadata['level']?.toString().trim().toUpperCase() ?? '';
+    if (metadataLevel.isNotEmpty) {
+      return metadataLevel;
     }
 
-    final category = key.category.trim().toUpperCase();
-    final zone = key.zone.trim().toUpperCase();
-    final name = key.keyName.trim().toUpperCase();
-    return '$category|$zone|$name';
+    final rollerLevel = key.metadata['rollerLevelNo']?.toString().trim().toUpperCase() ?? '';
+    final rollerMatch = RegExp(r'B2|B1|L\d{1,2}|LEVEL\s*\d{1,2}').firstMatch(rollerLevel);
+    if (rollerMatch != null) {
+      return rollerMatch.group(0)!.replaceAll('LEVEL ', 'L');
+    }
+
+    final zoneValue = key.zone.trim().toUpperCase();
+    final zoneMatch = RegExp(r'B2|B1|L\d{1,2}|LEVEL\s*\d{1,2}').firstMatch(zoneValue);
+    if (zoneMatch != null) {
+      return zoneMatch.group(0)!.replaceAll('LEVEL ', 'L');
+    }
+
+    return '';
+  }
+
+  static String _normalizedRecordZone(KeyRecord key) {
+    final metadataZone = key.metadata['zone']?.toString().trim().toUpperCase() ?? '';
+    if (metadataZone.isNotEmpty) {
+      return metadataZone;
+    }
+    return key.zone.trim().toUpperCase();
+  }
+
+  static bool _sameLogicalKey(KeyRecord left, KeyRecord right) {
+    final leftDocId = left.docId?.trim() ?? '';
+    final rightDocId = right.docId?.trim() ?? '';
+    if (leftDocId.isNotEmpty && rightDocId.isNotEmpty) {
+      return leftDocId == rightDocId;
+    }
+    return _logicalKeyIdentity(left) == _logicalKeyIdentity(right);
+  }
+
+  static int _indexForRecord(KeyRecord target) {
+    final targetDocId = target.docId?.trim() ?? '';
+    if (targetDocId.isNotEmpty) {
+      final indexByDoc = _keys.indexWhere((key) => (key.docId?.trim() ?? '') == targetDocId);
+      if (indexByDoc != -1) {
+        return indexByDoc;
+      }
+    }
+    return _keys.indexWhere((key) => _sameLogicalKey(key, target));
   }
 
   static bool _isActiveStatus(String status) {
     final normalized = status.trim().toLowerCase();
     return normalized == 'in use' || normalized == 'hand over';
+  }
+
+  static String _normalizeBorrowerIdentity(Borrower borrower) {
+    final ic = borrower.icPassport.trim().toUpperCase();
+    if (ic.isNotEmpty) {
+      return ic;
+    }
+    return borrower.name.trim().toUpperCase();
+  }
+
+  static String _savedBorrowerDocId(Borrower borrower) {
+    final identity = _normalizeBorrowerIdentity(borrower)
+        .replaceAll('/', '_')
+        .replaceAll(' ', '_');
+    return identity.isEmpty ? 'UNKNOWN_BORROWER' : identity;
+  }
+
+  static void _upsertSavedBorrowerLocal(Borrower borrower) {
+    final identity = _normalizeBorrowerIdentity(borrower);
+    final index = _savedBorrowers.indexWhere(
+      (item) => _normalizeBorrowerIdentity(item) == identity,
+    );
+
+    if (index == -1) {
+      _savedBorrowers.add(borrower);
+    } else {
+      _savedBorrowers[index] = borrower;
+    }
+
+    _savedBorrowers.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    _savedBorrowersController.add(List.unmodifiable(_savedBorrowers));
+  }
+
+  static Future<bool> saveBorrowerProfile(
+    Borrower borrower, {
+    String recordedBy = 'Security Admin',
+  }) async {
+    final normalized = Borrower(
+      name: borrower.name.trim(),
+      icPassport: borrower.icPassport.trim(),
+      phone: borrower.phone.trim(),
+      company: borrower.company.trim(),
+      department: borrower.department.trim(),
+    );
+    if (normalized.name.isEmpty) {
+      return false;
+    }
+
+    final identity = _normalizeBorrowerIdentity(normalized);
+    final existed = _savedBorrowers.any(
+      (item) => _normalizeBorrowerIdentity(item) == identity,
+    );
+
+    _upsertSavedBorrowerLocal(normalized);
+
+    if (_firestoreAvailable) {
+      await _savedPersonsCollection
+          .doc(_savedBorrowerDocId(normalized))
+          .set({
+        ...normalized.toFirestore(),
+        'recordedBy': recordedBy,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    return !existed;
+  }
+
+  static Stream<List<Borrower>> watchSavedBorrowers() {
+    if (!_firestoreAvailable) {
+      return _savedBorrowersController.stream;
+    }
+
+    return Stream<List<Borrower>>.multi((controller) {
+      controller.add(List<Borrower>.unmodifiable(_savedBorrowers));
+
+      final localSubscription = _savedBorrowersController.stream.listen(
+        controller.add,
+        onError: controller.addError,
+      );
+
+      final subscription = _savedPersonsCollection.snapshots().listen(
+        (snapshot) {
+          final borrowers = snapshot.docs.map(Borrower.fromFirestore).toList()
+            ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+          _savedBorrowers
+            ..clear()
+            ..addAll(borrowers);
+          final latest = List<Borrower>.unmodifiable(_savedBorrowers);
+          _savedBorrowersController.add(latest);
+          controller.add(latest);
+        },
+        onError: (_) {
+          controller.add(List<Borrower>.unmodifiable(_savedBorrowers));
+        },
+      );
+
+      controller.onCancel = () {
+        subscription.cancel();
+        localSubscription.cancel();
+      };
+    });
+  }
+
+  static Future<void> refreshSavedBorrowersFromFirestore() async {
+    if (!_firestoreAvailable) {
+      _savedBorrowersController.add(List<Borrower>.unmodifiable(_savedBorrowers));
+      return;
+    }
+
+    final snapshot = await _savedPersonsCollection.get();
+    final borrowers = snapshot.docs.map(Borrower.fromFirestore).toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+    _savedBorrowers
+      ..clear()
+      ..addAll(borrowers);
+    _savedBorrowersController.add(List<Borrower>.unmodifiable(_savedBorrowers));
   }
 
   static Future<void> _saveEventLog(EventLog event) async {
@@ -463,7 +689,7 @@ class KeyRecordRepository {
   }
 
   static Future<void> _saveNotification({
-    required String title,
+    required String action,
     required String body,
     required String keyId,
     required String category,
@@ -472,7 +698,7 @@ class KeyRecordRepository {
   }) async {
     if (!_firestoreAvailable) return;
     await _notificationsCollection.add({
-      'title': title,
+      'title': action,
       'body': body,
       'keyId': keyId,
       'category': category,
@@ -490,6 +716,11 @@ class KeyRecordRepository {
 
     return Stream<List<KeyRecord>>.multi((controller) {
       controller.add(List<KeyRecord>.unmodifiable(_keys));
+
+      final localSubscription = _keysController.stream.listen(
+        controller.add,
+        onError: controller.addError,
+      );
 
       final subscription = _keysCollection.snapshots().listen(
         (snapshot) {
@@ -509,7 +740,10 @@ class KeyRecordRepository {
         },
       );
 
-      controller.onCancel = () => subscription.cancel();
+      controller.onCancel = () {
+        subscription.cancel();
+        localSubscription.cancel();
+      };
     });
   }
 
@@ -547,6 +781,11 @@ class KeyRecordRepository {
       // Always show currently cached events immediately while waiting for Firestore.
       controller.add(List<EventLog>.unmodifiable(_eventLogs));
 
+      final localSubscription = _eventLogsController.stream.listen(
+        controller.add,
+        onError: controller.addError,
+      );
+
       final subscription = _eventLogCollection
           .snapshots()
           .listen(
@@ -566,7 +805,10 @@ class KeyRecordRepository {
         },
       );
 
-      controller.onCancel = () => subscription.cancel();
+      controller.onCancel = () {
+        subscription.cancel();
+        localSubscription.cancel();
+      };
     });
   }
 
@@ -622,12 +864,14 @@ class KeyRecordRepository {
     if (!_firestoreAvailable) {
       _keysController.add(List<KeyRecord>.unmodifiable(_keys));
       _eventLogsController.add(List<EventLog>.unmodifiable(_eventLogs));
+      _savedBorrowersController.add(List<Borrower>.unmodifiable(_savedBorrowers));
       return false;
     }
 
     await Future.wait([
       refreshKeysFromFirestore(),
       refreshEventLogsFromFirestore(),
+      refreshSavedBorrowersFromFirestore(),
     ]);
     return true;
   }
@@ -682,6 +926,82 @@ class KeyRecordRepository {
     }).toList();
   }
 
+  static List<KeyRecord> searchKeysFlexible(String query) {
+    final normalized = query.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return const <KeyRecord>[];
+    }
+
+    final results = _keys.where((key) {
+      final metadata = key.metadata;
+      final parts = <String>[
+        key.keyId,
+        key.zone,
+        key.keyName,
+        key.borrowerName,
+        key.company,
+        key.purpose,
+        key.status,
+        key.category,
+        metadata['level']?.toString() ?? '',
+        metadata['zone']?.toString() ?? '',
+        metadata['location']?.toString() ?? '',
+        metadata['position']?.toString() ?? '',
+        metadata['doorId']?.toString() ?? '',
+        metadata['masterKey']?.toString() ?? '',
+        metadata['lotKey']?.toString() ?? '',
+        metadata['rollerLevelNo']?.toString() ?? '',
+        metadata['rollerNumber']?.toString() ?? '',
+        metadata['staffName']?.toString() ?? '',
+        metadata['othersName']?.toString() ?? '',
+        metadata['department']?.toString() ?? '',
+        metadata['remarks']?.toString() ?? '',
+      ];
+      final haystack = parts.join(' ').toLowerCase();
+      return haystack.contains(normalized);
+    }).toList(growable: false);
+
+    results.sort((a, b) {
+      final scoreA = _searchScore(a, normalized);
+      final scoreB = _searchScore(b, normalized);
+      if (scoreA != scoreB) {
+        return scoreB.compareTo(scoreA);
+      }
+      return a.keyId.compareTo(b.keyId);
+    });
+
+    return results;
+  }
+
+  static List<KeyRecord> searchKeyHints(String query, {int limit = 6}) {
+    final results = searchKeysFlexible(query);
+    if (results.length <= limit) {
+      return results;
+    }
+    return results.take(limit).toList(growable: false);
+  }
+
+  static int _searchScore(KeyRecord key, String normalizedQuery) {
+    var score = 0;
+    final keyId = key.keyId.toLowerCase();
+    final keyName = key.keyName.toLowerCase();
+    final zone = key.zone.toLowerCase();
+    final level = key.metadata['level']?.toString().toLowerCase() ?? '';
+    final metadataZone = key.metadata['zone']?.toString().toLowerCase() ?? '';
+
+    if (keyId == normalizedQuery) score += 120;
+    if (keyName == normalizedQuery) score += 100;
+    if (zone == normalizedQuery || metadataZone == normalizedQuery) score += 90;
+    if (level == normalizedQuery) score += 70;
+    if (keyId.startsWith(normalizedQuery)) score += 60;
+    if (keyName.startsWith(normalizedQuery)) score += 50;
+    if (zone.startsWith(normalizedQuery) || metadataZone.startsWith(normalizedQuery)) score += 40;
+    if (keyId.contains(normalizedQuery)) score += 20;
+    if (keyName.contains(normalizedQuery)) score += 15;
+    if (zone.contains(normalizedQuery) || metadataZone.contains(normalizedQuery)) score += 10;
+    return score;
+  }
+
   static bool isLockedStatus(String status) {
     return status == 'Lost' ||
         status == 'No Return' ||
@@ -702,12 +1022,14 @@ class KeyRecordRepository {
     final effectiveMetadata = metadata ?? const <String, dynamic>{};
     final isHandOver = transactionStatus == 'Hand Over';
 
+    var firestoreWriteFailed = false;
+
     for (final selected in keys) {
       if (isLockedStatus(selected.status)) {
         continue;
       }
 
-      final index = _keys.indexWhere((key) => key.keyId == selected.keyId);
+      final index = _indexForRecord(selected);
       if (index == -1) {
         continue;
       }
@@ -728,6 +1050,8 @@ class KeyRecordRepository {
         takenAt: takenAt,
         metadata: mergedMetadata,
       );
+      _notifyKeys();
+
       final event = EventLog(
         action: isHandOver ? 'Key Handed Over' : 'Key Taken - In Use',
         keyId: _keys[index].keyId,
@@ -748,11 +1072,15 @@ class KeyRecordRepository {
       await _appendEvent(event);
 
       if (_firestoreAvailable) {
-        await _saveKey(_keys[index]).catchError((_) {});
+        try {
+          final target = _keys[index];
+          await _persistKeyToFirestore(target);
+        } catch (_) {
+          firestoreWriteFailed = true;
+        }
+
         await _saveNotification(
-          title: isHandOver
-              ? 'Key ${_keys[index].zone}/${_keys[index].keyName} handed over to ${borrower.name}'
-              : 'Key ${_keys[index].zone}/${_keys[index].keyName} now In Use by ${borrower.name}',
+          action: isHandOver ? 'Key Handed Over' : 'Key Taken - In Use',
           body: isHandOver
               ? 'Key ${_keys[index].zone}/${_keys[index].keyName} was handed over by ${effectiveMetadata['handoverBy'] ?? recordedBy} to ${borrower.name}.${effectiveMetadata['documentReportNo'] == null || (effectiveMetadata['documentReportNo'] as String).trim().isEmpty ? '' : ' Report No: ${effectiveMetadata['documentReportNo']}.'}'
               : 'Key ${_keys[index].zone}/${_keys[index].keyName} is now In Use by ${borrower.name}.',
@@ -764,11 +1092,16 @@ class KeyRecordRepository {
       }
     }
 
-    _notifyKeys();
+    if (_firestoreAvailable) {
+      await refreshKeysFromFirestore();
+      if (firestoreWriteFailed) {
+        throw Exception('Some keys failed to update in Firestore. Please retry.');
+      }
+    }
   }
 
   static Future<void> returnKey(KeyRecord record) async {
-    final index = _keys.indexWhere((key) => key.keyId == record.keyId);
+    final index = _indexForRecord(record);
     if (index == -1) {
       return;
     }
@@ -785,23 +1118,33 @@ class KeyRecordRepository {
 
     await _updateReturnEvent(record);
 
+    var firestoreWriteFailed = false;
     if (_firestoreAvailable) {
-      await _saveKey(_keys[index]).catchError((_) {});
+      try {
+        await _persistKeyToFirestore(_keys[index]);
+      } catch (_) {
+        firestoreWriteFailed = true;
+      }
       await _saveNotification(
-        title: 'Key Returned',
+        action: 'Returned',
         body: 'Key ${_keys[index].zone}/${_keys[index].keyName} has been returned and is now Available.',
         keyId: _keys[index].keyId,
         category: _keys[index].category,
         recordedBy: 'Security Admin',
         audience: 'allMembers',
       ).catchError((_) {});
+
+      await refreshKeysFromFirestore();
+      if (firestoreWriteFailed) {
+        throw Exception('Failed to update key return in Firestore. Please retry.');
+      }
     }
 
     _notifyKeys();
   }
 
   static Future<void> markNoReturn(KeyRecord record) async {
-    final index = _keys.indexWhere((key) => key.keyId == record.keyId);
+    final index = _indexForRecord(record);
     if (index == -1) {
       return;
     }
@@ -827,7 +1170,7 @@ class KeyRecordRepository {
     if (_firestoreAvailable) {
       await _saveKey(_keys[index]).catchError((_) {});
       await _saveNotification(
-        title: 'No Return',
+        action: 'No Return',
         body: 'Key ${_keys[index].zone}/${_keys[index].keyName} is now marked No Return.',
         keyId: _keys[index].keyId,
         category: _keys[index].category,
@@ -840,7 +1183,7 @@ class KeyRecordRepository {
   }
 
   static Future<void> markAtMaintenance(KeyRecord record) async {
-    final index = _keys.indexWhere((key) => key.keyId == record.keyId);
+    final index = _indexForRecord(record);
     if (index == -1) {
       return;
     }
@@ -890,12 +1233,53 @@ class KeyRecordRepository {
   }
 
   static Future<void> markReplaced(KeyRecord record) async {
-    await _updateKeyStatus(
-      record,
-      status: 'Replaced',
-      action: 'New Key Replaced',
-      actor: 'Security Admin',
+    final index = _indexForRecord(record);
+    if (index == -1) {
+      return;
+    }
+
+    _keys[index] = _keys[index].copyWith(
+      status: 'Available',
+      borrowerName: '',
+      icPassport: '',
+      phoneNumber: '',
+      company: '',
+      purpose: '',
+      takenAt: DateTime.now(),
     );
+
+    final event = EventLog(
+      action: 'Replaced',
+      keyId: _keys[index].keyId,
+      keyName: _keys[index].keyName,
+      borrowerName: record.borrowerName,
+      icPassport: record.icPassport,
+      phoneNumber: record.phoneNumber,
+      company: record.company,
+      purpose: record.purpose,
+      dateTimeTaken: DateTime.now(),
+      dateTimeReturned: DateTime.now(),
+      status: 'Available',
+      lose: false,
+      actor: 'Security Admin',
+      category: _keys[index].category,
+      metadata: record.metadata,
+    );
+    await _appendEvent(event);
+
+    if (_firestoreAvailable) {
+      await _saveKey(_keys[index]).catchError((_) {});
+      await _saveNotification(
+        action: 'Replaced',
+        body: 'Key ${_keys[index].zone}/${_keys[index].keyName} has been replaced and is now Available.',
+        keyId: _keys[index].keyId,
+        category: _keys[index].category,
+        recordedBy: 'Security Admin',
+        audience: 'allMembers',
+      ).catchError((_) {});
+    }
+
+    _notifyKeys();
   }
 
   static Future<void> markHandOver(KeyRecord record, {String actor = 'Security Admin'}) async {
@@ -907,6 +1291,116 @@ class KeyRecordRepository {
     );
   }
 
+  static Future<void> markHandOverWithDetails(
+    KeyRecord record, {
+    required String actor,
+    required Map<String, dynamic> metadata,
+  }) async {
+    final index = _indexForRecord(record);
+    if (index == -1) {
+      return;
+    }
+
+    final mergedMetadata = Map<String, dynamic>.from(_keys[index].metadata)
+      ..addAll(metadata);
+
+    _keys[index] = _keys[index].copyWith(
+      status: 'Hand Over',
+      metadata: mergedMetadata,
+    );
+    final event = EventLog(
+      action: 'Hand Over',
+      keyId: _keys[index].keyId,
+      keyName: _keys[index].keyName,
+      borrowerName: _keys[index].borrowerName,
+      icPassport: _keys[index].icPassport,
+      phoneNumber: _keys[index].phoneNumber,
+      company: _keys[index].company,
+      purpose: _keys[index].purpose,
+      dateTimeTaken: _keys[index].takenAt,
+      dateTimeReturned: null,
+      status: 'Hand Over',
+      lose: false,
+      actor: actor,
+      category: _keys[index].category,
+      metadata: mergedMetadata,
+    );
+    await _appendEvent(event);
+
+    if (_firestoreAvailable) {
+      await _saveKey(_keys[index]).catchError((_) {});
+      await _saveNotification(
+        action: 'Hand Over',
+        body: 'Key ${_keys[index].zone}/${_keys[index].keyName} is now marked Hand Over by $actor.',
+        keyId: _keys[index].keyId,
+        category: _keys[index].category,
+        recordedBy: actor,
+        audience: 'allMembers',
+      ).catchError((_) {});
+    }
+
+    _notifyKeys();
+  }
+
+  static Future<void> receiveKeyWithDetails(
+    KeyRecord record, {
+    required String actor,
+    required Map<String, dynamic> metadata,
+  }) async {
+    final index = _indexForRecord(record);
+    if (index == -1) {
+      return;
+    }
+
+    final mergedMetadata = Map<String, dynamic>.from(_keys[index].metadata)
+      ..addAll(metadata);
+    final previous = _keys[index];
+
+    _keys[index] = _keys[index].copyWith(
+      status: 'Available',
+      borrowerName: '',
+      icPassport: '',
+      phoneNumber: '',
+      company: '',
+      purpose: '',
+      takenAt: DateTime.now(),
+      metadata: mergedMetadata,
+    );
+
+    final event = EventLog(
+      action: 'Receive Key',
+      keyId: previous.keyId,
+      keyName: previous.keyName,
+      borrowerName: previous.borrowerName,
+      icPassport: previous.icPassport,
+      phoneNumber: previous.phoneNumber,
+      company: previous.company,
+      purpose: previous.purpose,
+      dateTimeTaken: DateTime.now(),
+      dateTimeReturned: DateTime.now(),
+      status: 'Available',
+      lose: false,
+      actor: actor,
+      category: previous.category,
+      metadata: mergedMetadata,
+    );
+    await _appendEvent(event);
+
+    if (_firestoreAvailable) {
+      await _saveKey(_keys[index]).catchError((_) {});
+      await _saveNotification(
+        action: 'Receive Key',
+        body: 'Key ${previous.zone}/${previous.keyName} has been received and is now Available.',
+        keyId: previous.keyId,
+        category: previous.category,
+        recordedBy: actor,
+        audience: 'allMembers',
+      ).catchError((_) {});
+    }
+
+    _notifyKeys();
+  }
+
   static Future<void> _updateKeyStatus(
     KeyRecord record, {
     required String status,
@@ -914,7 +1408,7 @@ class KeyRecordRepository {
     required String actor,
     bool lose = false,
   }) async {
-    final index = _keys.indexWhere((key) => key.keyId == record.keyId);
+    final index = _indexForRecord(record);
     if (index == -1) {
       return;
     }
@@ -985,6 +1479,22 @@ class KeyRecordRepository {
   }) async {
     final normalizedStatus = status.isEmpty ? 'Available' : status;
     final key = KeyRecord(
+      docId: _keyDocIdForRecord(
+        KeyRecord(
+          keyId: keyId,
+          zone: zone,
+          keyName: keyName,
+          borrowerName: '',
+          icPassport: '',
+          phoneNumber: '',
+          company: '',
+          purpose: metadata?['purpose'] as String? ?? '',
+          status: normalizedStatus,
+          takenAt: DateTime.now(),
+          category: category,
+          metadata: metadata ?? const {},
+        ),
+      ),
       keyId: keyId,
       zone: zone,
       keyName: keyName,
@@ -999,8 +1509,7 @@ class KeyRecordRepository {
       metadata: metadata ?? const {},
     );
 
-    final normalizedNewId = _normalizeKeyId(keyId);
-    final existingIndex = _keys.indexWhere((item) => _normalizeKeyId(item.keyId) == normalizedNewId);
+    final existingIndex = _keys.indexWhere((item) => _sameLogicalKey(item, key));
     if (existingIndex == -1) {
       _keys.add(key);
     } else {
@@ -1032,7 +1541,7 @@ class KeyRecordRepository {
       final qtySuffix = qtyValue.isEmpty ? '' : ' Qty: $qtyValue.';
       await _saveKey(key).catchError((_) {});
       await _saveNotification(
-        title: 'New Key Registered',
+        action: 'New Key Registered',
         body: 'A new key "$keyName" has been registered.$qtySuffix',
         keyId: key.keyId,
         category: category,
@@ -1104,7 +1613,21 @@ class KeyRecordRepository {
         await _saveKey(updatedRecord).catchError((_) {});
       } else {
         final mergedMetadata = metadata ?? const <String, dynamic>{};
-        await _keysCollection.doc(_keyDocId(keyId)).set({
+        final transient = KeyRecord(
+          keyId: keyId,
+          zone: zone,
+          keyName: keyName,
+          borrowerName: '',
+          icPassport: '',
+          phoneNumber: '',
+          company: '',
+          purpose: mergedMetadata['purpose']?.toString() ?? '',
+          status: status,
+          takenAt: DateTime.now(),
+          category: category,
+          metadata: mergedMetadata,
+        );
+        await _keysCollection.doc(_keyDocIdForRecord(transient)).set({
           'keyId': keyId,
           'zone': zone,
           'keyName': keyName,
@@ -1117,7 +1640,7 @@ class KeyRecordRepository {
       }
 
       await _saveNotification(
-        title: 'Key Details Updated',
+        action: 'Key Details Edited',
         body: 'Key "$keyName" details were updated by $recordedBy.',
         keyId: keyId,
         category: category,
@@ -1133,7 +1656,7 @@ class KeyRecordRepository {
     KeyRecord record, {
     String recordedBy = 'Security Admin',
   }) async {
-    final index = _keys.indexWhere((key) => key.keyId == record.keyId);
+    final index = _indexForRecord(record);
     if (index == -1) {
       return;
     }
@@ -1161,9 +1684,9 @@ class KeyRecordRepository {
     await _appendEvent(event);
 
     if (_firestoreAvailable) {
-      await _keysCollection.doc(_keyDocId(deleted.keyId)).delete().catchError((_) {});
+      await _keysCollection.doc(_keyDocIdForRecord(deleted)).delete().catchError((_) {});
       await _saveNotification(
-        title: 'Key Deleted',
+        action: 'Key Deleted',
         body: 'Key ${deleted.zone}/${deleted.keyName} was deleted by $recordedBy.',
         keyId: deleted.keyId,
         category: deleted.category,

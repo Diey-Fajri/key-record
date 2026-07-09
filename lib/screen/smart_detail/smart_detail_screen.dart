@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../services/auth_service.dart';
 import '../../services/key_repository.dart';
@@ -16,6 +17,18 @@ class SmartDetailScreen extends StatefulWidget {
 
 class _SmartDetailScreenState extends State<SmartDetailScreen> {
   late KeyRecord _currentRecord;
+
+  static const List<String> _statusOptions = [
+    'Available',
+    'In Use',
+    'No Return',
+    'At Maintenance',
+    'Lost',
+    'Hand Over',
+    'Damaged',
+    'Replaced',
+    'High Risk',
+  ];
 
   @override
   void initState() {
@@ -95,6 +108,18 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                     _ReadOnlyField(label: 'Tenant\'s Name', value: _readMetadata('tenantName')),
                   if (_currentRecord.status != 'Available' && _readMetadata('purpose').isNotEmpty)
                     _ReadOnlyField(label: 'Purpose', value: _readMetadata('purpose')),
+                  if (_currentRecord.status == 'Hand Over' && _readMetadata('documentReportNo').isNotEmpty)
+                    _ReadOnlyField(label: 'Document report no.', value: _readMetadata('documentReportNo')),
+                  if (_currentRecord.status == 'Hand Over' && _readMetadata('handoverBy').isNotEmpty)
+                    _ReadOnlyField(label: 'Handover by', value: _readMetadata('handoverBy')),
+                  if (_currentRecord.status == 'Hand Over' && _readMetadata('receivedBy').isNotEmpty)
+                    _ReadOnlyField(label: 'Received by', value: _readMetadata('receivedBy')),
+                  if (_currentRecord.status == 'Hand Over' && _readMetadata('witnessesBy').isNotEmpty)
+                    _ReadOnlyField(label: 'Witnesses by', value: _readMetadata('witnessesBy')),
+                  if (_currentRecord.status == 'Hand Over' && _readMetadata('handoverDate').isNotEmpty)
+                    _ReadOnlyField(label: 'Handover date', value: _readMetadata('handoverDate')),
+                  if (_currentRecord.status == 'Hand Over' && _readMetadata('handoverTime').isNotEmpty)
+                    _ReadOnlyField(label: 'Handover time', value: _readMetadata('handoverTime')),
                   if (_readMetadata('date').isNotEmpty)
                     _ReadOnlyField(label: 'Date', value: _readMetadata('date')),
                   if (_readMetadata('time').isNotEmpty)
@@ -161,8 +186,11 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                         },
                         itemBuilder: (context) => [
                           const PopupMenuItem(value: 'Lost', child: Text('Lost')),
-                          const PopupMenuItem(value: 'Replaced', child: Text('New key replaced')),
-                          const PopupMenuItem(value: 'Hand Over', child: Text('Hand Over')),
+                          const PopupMenuItem(value: 'Replaced', child: Text('Replaced')),
+                          if (_currentRecord.status == 'In Use')
+                            const PopupMenuItem(value: 'Hand Over', child: Text('Hand Over')),
+                          if (_currentRecord.status == 'Hand Over')
+                            const PopupMenuItem(value: 'Receive Key', child: Text('Receive Key')),
                           const PopupMenuItem(value: 'Damaged', child: Text('Damaged')),
                           const PopupMenuItem(
                             value: 'Delete Key',
@@ -205,7 +233,31 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
     } else if (action == 'Replaced') {
       await KeyRecordRepository.markReplaced(_currentRecord);
     } else if (action == 'Hand Over') {
-      await KeyRecordRepository.markHandOver(_currentRecord);
+      if (_currentRecord.status != 'In Use') {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Hand Over is only available for In Use keys.')),
+          );
+        }
+        return;
+      }
+      final saved = await _openHandoverDialog(context);
+      if (!saved) {
+        return;
+      }
+    } else if (action == 'Receive Key') {
+      if (_currentRecord.status != 'Hand Over') {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Receive Key is only available for Hand Over keys.')),
+          );
+        }
+        return;
+      }
+      final saved = await _openReceiveKeyDialog(context);
+      if (!saved) {
+        return;
+      }
     } else if (action == 'Damaged') {
       await KeyRecordRepository.markDamaged(_currentRecord);
     }
@@ -233,6 +285,240 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
           ),
         ),
       );
+    }
+  }
+
+  Future<bool> _openHandoverDialog(BuildContext context) async {
+    final formKey = GlobalKey<FormState>();
+    final documentReportNoController = TextEditingController();
+    final handoverByController = TextEditingController(
+      text: AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin',
+    );
+    final handoverDateController = TextEditingController(text: _formatDate(DateTime.now()));
+    final handoverTimeController = TextEditingController(text: _formatTime(DateTime.now()));
+    final receivedByController = TextEditingController();
+    final witnessesByController = TextEditingController();
+
+    try {
+      final saved = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) {
+              return AlertDialog(
+                title: const Text('Handover Details'),
+                content: Form(
+                  key: formKey,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _EditableField(
+                          controller: documentReportNoController,
+                          label: 'Document report no.',
+                          requiredField: true,
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                            LengthLimitingTextInputFormatter(4),
+                          ],
+                          validator: (value) {
+                            final normalized = value?.trim() ?? '';
+                            if (normalized.isEmpty) {
+                              return 'Required';
+                            }
+                            if (!RegExp(r'^\d{4}$').hasMatch(normalized)) {
+                              return 'Document report no. must be exactly 4 digits';
+                            }
+                            return null;
+                          },
+                        ),
+                        _EditableField(
+                          controller: handoverByController,
+                          label: 'Handover by',
+                          requiredField: true,
+                          readOnly: true,
+                        ),
+                        _EditableField(
+                          controller: handoverDateController,
+                          label: 'Handover date',
+                          requiredField: true,
+                        ),
+                        _EditableField(
+                          controller: handoverTimeController,
+                          label: 'Handover time',
+                          requiredField: true,
+                        ),
+                        _EditableField(
+                          controller: receivedByController,
+                          label: 'Received by',
+                          requiredField: true,
+                        ),
+                        _EditableField(
+                          controller: witnessesByController,
+                          label: 'Witnesses by',
+                          requiredField: true,
+                          maxLines: 2,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(false),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: () async {
+                      if (!(formKey.currentState?.validate() ?? false)) {
+                        return;
+                      }
+
+                      final actor = AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin';
+                      await KeyRecordRepository.markHandOverWithDetails(
+                        _currentRecord,
+                        actor: actor,
+                        metadata: {
+                          'documentReportNo': documentReportNoController.text.trim(),
+                          'handoverBy': handoverByController.text.trim(),
+                          'handoverDate': handoverDateController.text.trim(),
+                          'handoverTime': handoverTimeController.text.trim(),
+                          'receivedBy': receivedByController.text.trim(),
+                          'witnessesBy': witnessesByController.text.trim(),
+                        },
+                      );
+                      if (dialogContext.mounted) {
+                        Navigator.of(dialogContext).pop(true);
+                      }
+                    },
+                    child: const Text('Save'),
+                  ),
+                ],
+              );
+            },
+          ) ??
+          false;
+
+      if (!saved || !mounted) {
+        return false;
+      }
+
+      final latest = KeyRecordRepository.searchKeys(_currentRecord.keyId)
+          .where((item) => item.keyId == _currentRecord.keyId)
+          .toList();
+      if (latest.isNotEmpty) {
+        setState(() => _currentRecord = latest.first);
+      }
+
+      return true;
+    } finally {
+      documentReportNoController.dispose();
+      handoverByController.dispose();
+      handoverDateController.dispose();
+      handoverTimeController.dispose();
+      receivedByController.dispose();
+      witnessesByController.dispose();
+    }
+  }
+
+  Future<bool> _openReceiveKeyDialog(BuildContext context) async {
+    final formKey = GlobalKey<FormState>();
+    final receivedFromController = TextEditingController(
+      text: _readMetadata('staffName').isNotEmpty ? _readMetadata('staffName') : _currentRecord.borrowerName,
+    );
+    final receivedByController = TextEditingController(
+      text: AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin',
+    );
+    final witnessByController = TextEditingController();
+    final documentNoController = TextEditingController();
+
+    try {
+      final saved = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) {
+              return AlertDialog(
+                title: const Text('Receive Key Details'),
+                content: Form(
+                  key: formKey,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _EditableField(
+                          controller: receivedFromController,
+                          label: 'Received from',
+                          requiredField: true,
+                        ),
+                        _EditableField(
+                          controller: receivedByController,
+                          label: 'Received by',
+                          requiredField: true,
+                        ),
+                        _EditableField(
+                          controller: witnessByController,
+                          label: 'Withness by',
+                          requiredField: true,
+                        ),
+                        _EditableField(
+                          controller: documentNoController,
+                          label: 'Document No.',
+                          requiredField: true,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(false),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: () async {
+                      if (!(formKey.currentState?.validate() ?? false)) {
+                        return;
+                      }
+
+                      final actor = AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin';
+                      await KeyRecordRepository.receiveKeyWithDetails(
+                        _currentRecord,
+                        actor: actor,
+                        metadata: {
+                          'receivedFrom': receivedFromController.text.trim(),
+                          'receivedBy': receivedByController.text.trim(),
+                          'withnessBy': witnessByController.text.trim(),
+                          'documentNo': documentNoController.text.trim(),
+                        },
+                      );
+
+                      if (dialogContext.mounted) {
+                        Navigator.of(dialogContext).pop(true);
+                      }
+                    },
+                    child: const Text('Save'),
+                  ),
+                ],
+              );
+            },
+          ) ??
+          false;
+
+      if (!saved || !mounted) {
+        return false;
+      }
+
+      final latest = KeyRecordRepository.searchKeys(_currentRecord.keyId)
+          .where((item) => item.keyId == _currentRecord.keyId)
+          .toList();
+      if (latest.isNotEmpty) {
+        setState(() => _currentRecord = latest.first);
+      }
+
+      return true;
+    } finally {
+      receivedFromController.dispose();
+      receivedByController.dispose();
+      witnessByController.dispose();
+      documentNoController.dispose();
     }
   }
 
@@ -308,13 +594,9 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
     final rollerNumberController = TextEditingController(text: _readMetadata('rollerNumber'));
     final qtyController = TextEditingController(text: _readMetadata('qty'));
     final doorIdController = TextEditingController(text: _readMetadata('doorId'));
-    final statusController = TextEditingController(text: _currentRecord.status);
-    final staffNameController = TextEditingController(text: _readMetadata('staffName'));
-    final departmentController = TextEditingController(text: _readMetadata('department'));
-    final tenantNameController = TextEditingController(text: _readMetadata('tenantName'));
-    final purposeController = TextEditingController(text: _readMetadata('purpose'));
-    final dateController = TextEditingController(text: _readMetadata('date'));
-    final timeController = TextEditingController(text: _readMetadata('time'));
+    var selectedStatus = _statusOptions.contains(_currentRecord.status)
+      ? _currentRecord.status
+      : 'Available';
     final remarksController = TextEditingController(text: _readMetadata('remarks'));
 
     Future<void> save() async {
@@ -325,25 +607,20 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
       final messenger = ScaffoldMessenger.of(context);
       final navigator = Navigator.of(context);
 
-      final metadata = <String, dynamic>{
-        'location': locationController.text.trim(),
-        'level': levelController.text.trim(),
-        'zone': zoneController.text.trim(),
-        'masterKey': masterKeyController.text.trim(),
-        'lotKey': lotKeyController.text.trim(),
-        'rollerLevelNo': rollerLevelNoController.text.trim(),
-        'frs': frsController.text.trim(),
-        'rollerNumber': rollerNumberController.text.trim(),
-        'qty': qtyController.text.trim(),
-        'doorId': doorIdController.text.trim(),
-        'staffName': staffNameController.text.trim(),
-        'department': departmentController.text.trim(),
-        'tenantName': tenantNameController.text.trim(),
-        'purpose': purposeController.text.trim(),
-        'date': dateController.text.trim(),
-        'time': timeController.text.trim(),
-        'remarks': remarksController.text.trim(),
-      };
+      final metadata = Map<String, dynamic>.from(_currentRecord.metadata)
+        ..addAll({
+          'location': locationController.text.trim(),
+          'level': levelController.text.trim(),
+          'zone': zoneController.text.trim(),
+          'masterKey': masterKeyController.text.trim(),
+          'lotKey': lotKeyController.text.trim(),
+          'rollerLevelNo': rollerLevelNoController.text.trim(),
+          'frs': frsController.text.trim(),
+          'rollerNumber': rollerNumberController.text.trim(),
+          'qty': qtyController.text.trim(),
+          'doorId': doorIdController.text.trim(),
+          'remarks': remarksController.text.trim(),
+        });
 
       final effectiveZone = zoneController.text.trim().isEmpty ? _currentRecord.zone : zoneController.text.trim();
       final actor = AuthService.activeUser.isEmpty ? 'Security Admin' : AuthService.activeUser;
@@ -354,7 +631,7 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
           zone: effectiveZone,
           keyName: keyNameController.text.trim(),
           category: category,
-          status: statusController.text.trim(),
+          status: selectedStatus,
           recordedBy: actor,
           metadata: metadata,
         );
@@ -390,43 +667,69 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
       builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Edit Key Details'),
-          content: SizedBox(
-            width: 520,
-            child: Form(
-              key: formKey,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _EditableField(controller: keyNameController, label: 'Key Name', requiredField: true),
-                    _EditableField(controller: locationController, label: 'Location'),
-                    _EditableField(controller: levelController, label: 'Level'),
-                    if (category == 'Zone' || category == 'Others')
-                      _EditableField(controller: zoneController, label: 'Zone', requiredField: true),
-                    if (category == 'Master Key')
-                      _EditableField(controller: masterKeyController, label: 'Master Key', requiredField: true),
-                    if (category == 'Lot')
-                      _EditableField(controller: lotKeyController, label: 'No. Lot Key', requiredField: true),
-                    if (category == 'Roller Shutter') ...[
-                      _EditableField(controller: rollerLevelNoController, label: 'Level / No.', requiredField: true),
-                      _EditableField(controller: frsController, label: 'FRS', requiredField: true),
-                      _EditableField(controller: rollerNumberController, label: 'No. Roller Shutter', requiredField: true),
-                    ],
-                    _EditableField(controller: qtyController, label: 'Qty'),
-                    if (category != 'Roller Shutter')
-                      _EditableField(controller: doorIdController, label: 'Door ID'),
-                    _EditableField(controller: statusController, label: 'Status', requiredField: true),
-                    _EditableField(controller: staffNameController, label: 'Name Staff'),
-                    _EditableField(controller: departmentController, label: 'Department'),
-                    _EditableField(controller: tenantNameController, label: 'Tenant\'s Name'),
-                    _EditableField(controller: purposeController, label: 'Purpose'),
-                    _EditableField(controller: dateController, label: 'Date'),
-                    _EditableField(controller: timeController, label: 'Time'),
-                    _EditableField(controller: remarksController, label: 'Remarks', maxLines: 3),
-                  ],
+          content: StatefulBuilder(
+            builder: (context, setDialogState) {
+              return SizedBox(
+                width: 520,
+                child: Form(
+                  key: formKey,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _EditableField(controller: keyNameController, label: 'Key Name', requiredField: true),
+                        _EditableField(controller: locationController, label: 'Location'),
+                        _EditableField(controller: levelController, label: 'Level'),
+                        if (category == 'Zone' || category == 'Others')
+                          _EditableField(controller: zoneController, label: 'Zone', requiredField: true),
+                        if (category == 'Master Key')
+                          _EditableField(controller: masterKeyController, label: 'Master Key', requiredField: true),
+                        if (category == 'Lot')
+                          _EditableField(controller: lotKeyController, label: 'No. Lot Key', requiredField: true),
+                        if (category == 'Roller Shutter') ...[
+                          _EditableField(controller: rollerLevelNoController, label: 'Level / No.', requiredField: true),
+                          _EditableField(controller: frsController, label: 'FRS', requiredField: true),
+                          _EditableField(controller: rollerNumberController, label: 'No. Roller Shutter', requiredField: true),
+                        ],
+                        _EditableField(controller: qtyController, label: 'Qty'),
+                        if (category != 'Roller Shutter')
+                          _EditableField(controller: doorIdController, label: 'Door ID'),
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: DropdownButtonFormField<String>(
+                            initialValue: selectedStatus,
+                            decoration: InputDecoration(
+                              labelText: 'Status',
+                              filled: true,
+                              fillColor: const Color(0xFFF9FBFC),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            items: _statusOptions
+                                .map((status) => DropdownMenuItem(value: status, child: Text(status)))
+                                .toList(growable: false),
+                            onChanged: (value) {
+                              if (value == null) {
+                                return;
+                              }
+                              setDialogState(() => selectedStatus = value);
+                            },
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'Required';
+                              }
+                              return null;
+                            },
+                          ),
+                        ),
+                        _EditableField(controller: remarksController, label: 'Remarks', maxLines: 3),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
           actions: [
             TextButton(
@@ -453,14 +756,15 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
     rollerNumberController.dispose();
     qtyController.dispose();
     doorIdController.dispose();
-    statusController.dispose();
-    staffNameController.dispose();
-    departmentController.dispose();
-    tenantNameController.dispose();
-    purposeController.dispose();
-    dateController.dispose();
-    timeController.dispose();
     remarksController.dispose();
+  }
+
+  String _formatDate(DateTime value) {
+    return '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
+  }
+
+  String _formatTime(DateTime value) {
+    return '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
   }
 }
 
@@ -496,12 +800,20 @@ class _EditableField extends StatelessWidget {
     required this.label,
     this.requiredField = false,
     this.maxLines = 1,
+    this.readOnly = false,
+    this.keyboardType,
+    this.inputFormatters,
+    this.validator,
   });
 
   final TextEditingController controller;
   final String label;
   final bool requiredField;
   final int maxLines;
+  final bool readOnly;
+  final TextInputType? keyboardType;
+  final List<TextInputFormatter>? inputFormatters;
+  final String? Function(String?)? validator;
 
   @override
   Widget build(BuildContext context) {
@@ -510,14 +822,18 @@ class _EditableField extends StatelessWidget {
       child: TextFormField(
         controller: controller,
         maxLines: maxLines,
-        validator: requiredField
-            ? (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return 'Required';
-                }
-                return null;
-              }
-            : null,
+        readOnly: readOnly,
+        keyboardType: keyboardType,
+        inputFormatters: inputFormatters,
+        validator: validator ??
+            (requiredField
+                ? (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Required';
+                    }
+                    return null;
+                  }
+                : null),
         decoration: InputDecoration(
           labelText: label,
           filled: true,
