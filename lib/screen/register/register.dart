@@ -476,96 +476,100 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
   }
 
-  Future<void> _submit() async {
+  Future<void> _submit() async { // Orchestrator
     if (_isSubmitting) {
       return;
     }
 
-    if (_selectedKeys.isEmpty) {
-      _showMessage('Please add at least one available key.');
-      return;
-    }
-
-    if (!(_formKey.currentState?.validate() ?? false)) {
-      return;
-    }
-
-    final borrowerName = _nameController.text.trim();
-    final takenAt = _takeStatus == 'Hand Over' ? _parseHandoverDateTime() : _now;
-    if (takenAt == null) {
-      _showMessage('Please enter a valid handover date and time.');
-      return;
-    }
-    final currentKeys = await repository.KeyRecordRepository.watchAllKeys().first;
-    final keyByDocId = <String, repository.KeyRecord>{
-      for (final key in currentKeys)
-        if ((key.docId?.trim().isNotEmpty ?? false)) key.docId!.trim(): key,
-    };
-    final selectedRecords = _selectedKeys
-        .map((selected) => keyByDocId[selected.docId])
-        .whereType<repository.KeyRecord>()
-        .toList(growable: false);
-    if (selectedRecords.length != _selectedKeys.length) {
-      _showMessage('One or more selected keys are no longer available. Please reselect keys.');
-      return;
-    }
-    final borrower = repository.Borrower(
-      name: borrowerName,
-      icPassport: _borrowerCategory == 'Staff' ? '' : _icController.text.trim(),
-      phone: _phoneController.text.trim(),
-      company: _companyController.text.trim(),
-      department: _departmentController.text.trim(),
-    );
-    final savedBorrower = await _saveBorrowerIfNeeded();
-    final keyLabels = selectedRecords.map((record) => '${record.zone}/${record.keyName}').join(', ');
-    final isHandOver = _takeStatus == 'Hand Over';
-    final recordedBy = AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin';
-
-    if (isHandOver && !_validateHandoverDetails()) {
-      _showMessage('Please complete the handover popup details first.');
-      return;
-    }
-
     setState(() => _isSubmitting = true);
+
     try {
+      // 1. Validate inputs
+      final takenAt = _getTakenAt();
+      final selectedRecords = await _validateAndGetSelectedRecords();
+      if (selectedRecords == null || takenAt == null || !_validateForm()) {
+        return;
+      }
+
+      // 2. Prepare data
+      final borrower = _buildBorrower();
+      final metadata = _buildTransactionMetadata(borrower.name);
+      final recordedBy = AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin';
+
+      // 3. Execute transaction
       await repository.KeyRecordRepository.takeKeys(
         selectedRecords,
         borrower,
         takenAt,
         recordedBy: recordedBy,
         transactionStatus: _takeStatus,
-        metadata: {
-          'borrowerCategory': _borrowerCategory,
-          'staffName': _borrowerCategory == 'Staff' ? borrowerName : '',
-          'othersName': _borrowerCategory == 'Others' ? borrowerName : '',
-          'department': _departmentController.text.trim(),
-          'purpose': _purposeController.text.trim(),
-          'remarks': _remarksController.text.trim(),
-          if (isHandOver) ...{
-            'documentReportNo': _documentReportNoController.text.trim(),
-            'handoverBy': _handoverByController.text.trim(),
-            'receivedBy': _receivedByController.text.trim(),
-            'witnessesBy': _witnessesByController.text.trim(),
-            'handoverDate': _handoverDateController.text.trim(),
-            'handoverTime': _handoverTimeController.text.trim(),
-          },
-        },
+        metadata: metadata,
       );
+
+      // 4. Handle post-submission tasks
+      final wasBorrowerSaved = await _saveBorrowerIfNeeded();
+      if (mounted) {
+        await _showSuccessDialog(selectedRecords, borrower, takenAt, wasBorrowerSaved);
+      }
     } catch (error) {
       if (mounted) {
         _showMessage('Failed to update all keys. Please retry. ($error)');
       }
-      return;
     } finally {
       if (mounted) {
         setState(() => _isSubmitting = false);
       }
     }
-    if (!mounted) return;
+  }
 
+  bool _validateForm() {
+    if (_selectedKeys.isEmpty) {
+      _showMessage('Please add at least one available key.');
+      return false;
+    }
+
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      return false;
+    }
+
+    if (_takeStatus == 'Hand Over' && !_validateHandoverDetails()) {
+      _showMessage('Please complete the handover popup details first.');
+      return false;
+    }
+
+    return true;
+  }
+
+  Future<List<repository.KeyRecord>?> _validateAndGetSelectedRecords() async {
+    final allKeys = await repository.KeyRecordRepository.watchAllKeys().first;
+    final keyByDocId = {
+      for (final key in allKeys)
+        if (key.docId?.trim().isNotEmpty ?? false) key.docId!.trim(): key,
+    };
+
+    final selectedRecords = _selectedKeys
+        .map((selected) => keyByDocId[selected.docId])
+        .whereType<repository.KeyRecord>()
+        .toList();
+
+    if (selectedRecords.length != _selectedKeys.length) {
+      _showMessage('One or more selected keys are no longer available. Please reselect keys.');
+      return null;
+    }
+    return selectedRecords;
+  }
+
+  Future<void> _showSuccessDialog(
+    List<repository.KeyRecord> records,
+    repository.Borrower borrower,
+    DateTime takenAt,
+    bool wasBorrowerSaved,
+  ) async {
+    final keyLabels = records.map((r) => '${r.zone}/${r.keyName}').join(', ');
+    final isHandOver = _takeStatus == 'Hand Over';
     final dialogLines = <String>[
       'Keys: $keyLabels',
-      'Borrower: $borrowerName',
+      'Borrower: ${borrower.name}',
       'Status: $_takeStatus',
       if (_remarksController.text.trim().isNotEmpty)
         'Remarks: ${_remarksController.text.trim()}',
@@ -576,7 +580,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         'Witnesses by: ${_witnessesByController.text.trim()}',
       ],
       'Time: ${_formatDateTime(takenAt)}',
-      if (savedBorrower) 'Person saved for next time.',
+      if (wasBorrowerSaved) 'Person saved for next time.',
     ];
 
     await showDialog<void>(
@@ -597,6 +601,42 @@ class _RegisterScreenState extends State<RegisterScreen> {
         );
       },
     );
+  }
+
+  repository.Borrower _buildBorrower() {
+    return repository.Borrower(
+      name: _nameController.text.trim(),
+      icPassport: _borrowerCategory == 'Others' ? _icController.text.trim() : '',
+      phone: _phoneController.text.trim(),
+      company: _companyController.text.trim(),
+      department: _departmentController.text.trim(),
+    );
+  }
+
+  Map<String, dynamic> _buildTransactionMetadata(String borrowerName) {
+    final isHandOver = _takeStatus == 'Hand Over';
+    return {
+      'borrowerCategory': _borrowerCategory,
+      'staffName': _borrowerCategory == 'Staff' ? borrowerName : '',
+      'othersName': _borrowerCategory == 'Others' ? borrowerName : '',
+      'department': _departmentController.text.trim(),
+      'purpose': _purposeController.text.trim(),
+      'remarks': _remarksController.text.trim(),
+      if (isHandOver) ...{
+        'documentReportNo': _documentReportNoController.text.trim(),
+        'handoverBy': _handoverByController.text.trim(),
+        'receivedBy': _receivedByController.text.trim(),
+        'witnessesBy': _witnessesByController.text.trim(),
+        'handoverDate': _handoverDateController.text.trim(),
+        'handoverTime': _handoverTimeController.text.trim(),
+      },
+    };
+  }
+
+  DateTime? _getTakenAt() {
+    final takenAt = _takeStatus == 'Hand Over' ? _parseHandoverDateTime() : _now;
+    if (takenAt == null) _showMessage('Please enter a valid handover date and time.');
+    return takenAt;
   }
 
   Future<void> _openHandoverDetailsDialog() async {
