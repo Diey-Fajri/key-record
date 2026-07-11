@@ -576,15 +576,27 @@ class KeyRecordRepository {
   }
 
   static int _indexForRecord(KeyRecord target) {
-    final targetDocId = target.docId?.trim() ?? '';
-    if (targetDocId.isNotEmpty) {
-      final indexByDoc = _keys.indexWhere((key) => (key.docId?.trim() ?? '') == targetDocId);
-      if (indexByDoc != -1) {
-        return indexByDoc;
-      }
-    }
-    return _keys.indexWhere((key) => _sameLogicalKey(key, target));
+  final targetDocId = target.docId?.trim() ?? '';
+  
+  // Priority 1: Match by docId
+  if (targetDocId.isNotEmpty) {
+    final indexByDoc = _keys.indexWhere((key) => 
+      (key.docId?.trim() ?? '') == targetDocId);
+    if (indexByDoc != -1) return indexByDoc;
   }
+
+  final targetKeyId = target.keyId.trim().toUpperCase();
+
+  // Priority 2: Match by keyId (paling penting)
+  return _keys.indexWhere((key) {
+    final existingKeyId = key.keyId.trim().toUpperCase();
+    
+    if (existingKeyId == targetKeyId) return true;
+    
+    // Fallback ke logical key kalau keyId tak match
+    return _sameLogicalKey(key, target);
+  });
+}
 
   static bool _isActiveStatus(String status) {
     final normalized = status.trim().toLowerCase();
