@@ -166,7 +166,7 @@ class AppUpdateService {
     void Function(int received, int total)? onReceiveProgress,
   }) async {
     final storageRef = _resolveStorageReference(update.apkStoragePath);
-    final downloadUrl = await storageRef.getDownloadURL();
+    final downloadUrl = update.apkUrl;
     final fileName = storageRef.name.isEmpty ? 'app-release.apk' : storageRef.name;
 
     final tempDir = await getTemporaryDirectory();
