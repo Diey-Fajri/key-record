@@ -611,8 +611,16 @@ class _SearchBar extends StatelessWidget {
                 return ListTile(
                   dense: true,
                   leading: const Icon(Icons.vpn_key_outlined),
-                  title: Text(_searchHintTitle(record)),
-                  subtitle: Text('${record.keyId} • ${record.status}'),
+                  title: Text(
+                    _searchHintTitle(record),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    record.keyName.isNotEmpty ? record.keyName : record.status,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   onTap: () => onSuggestionSelected(record),
                 );
               }).toList(growable: false),

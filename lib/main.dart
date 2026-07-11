@@ -17,6 +17,10 @@ Future<void> main() async {
     debugPrintStack(stackTrace: stackTrace);
   }
 
+  // Clear all stored credentials to require fresh login
+  await AuthService.clearStoredCredentials();
+  await AuthService.logout();
+
   await AuthService.initialize();
 
   runApp(const MyApp());

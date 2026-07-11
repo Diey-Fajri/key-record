@@ -493,6 +493,20 @@ class KeyRecordRepository {
     return _logicalKeyIdentity(key);
   }
 
+  static String _identityMetadataSignature(KeyRecord key) {
+    final category = key.category.trim().toLowerCase();
+    switch (category) {
+      case 'master key':
+        return 'master:${(key.metadata['masterKey'] ?? key.keyName).toString().trim().toLowerCase()}';
+      case 'lot':
+        return 'lot:${(key.metadata['lotKey'] ?? key.keyName).toString().trim().toLowerCase()}';
+      case 'roller shutter':
+        return 'roller:${(key.metadata['rollerLevelNo'] ?? '').toString().trim().toLowerCase()}|${(key.metadata['rollerNumber'] ?? '').toString().trim().toLowerCase()}';
+      default:
+        return '';
+    }
+  }
+
   static String _logicalKeyIdentity(KeyRecord key) {
     final normalizedId = _normalizeKeyId(key.keyId);
     final category = key.category.trim().toUpperCase();
@@ -531,13 +545,34 @@ class KeyRecordRepository {
     return key.zone.trim().toUpperCase();
   }
 
-  static bool _sameLogicalKey(KeyRecord left, KeyRecord right) {
+  static bool recordsMatch(KeyRecord left, KeyRecord right) {
     final leftDocId = left.docId?.trim() ?? '';
     final rightDocId = right.docId?.trim() ?? '';
-    if (leftDocId.isNotEmpty && rightDocId.isNotEmpty) {
-      return leftDocId == rightDocId;
+    if (leftDocId.isNotEmpty && rightDocId.isNotEmpty && leftDocId == rightDocId) {
+      return true;
     }
+
+    final sameKeyId = _normalizeKeyId(left.keyId) == _normalizeKeyId(right.keyId);
+    final sameCategory = left.category.trim().toLowerCase() == right.category.trim().toLowerCase();
+    final sameName = left.keyName.trim().toLowerCase() == right.keyName.trim().toLowerCase();
+    final sameLevel = _normalizedRecordLevel(left) == _normalizedRecordLevel(right);
+    final sameZone = _normalizedRecordZone(left) == _normalizedRecordZone(right);
+
+    if (sameKeyId && sameCategory && sameName && sameLevel && sameZone) {
+      return true;
+    }
+
+    final leftSpecific = _identityMetadataSignature(left);
+    final rightSpecific = _identityMetadataSignature(right);
+    if (leftSpecific.isNotEmpty && rightSpecific.isNotEmpty && leftSpecific == rightSpecific) {
+      return true;
+    }
+
     return _logicalKeyIdentity(left) == _logicalKeyIdentity(right);
+  }
+
+  static bool _sameLogicalKey(KeyRecord left, KeyRecord right) {
+    return recordsMatch(left, right);
   }
 
   static int _indexForRecord(KeyRecord target) {
@@ -1025,7 +1060,8 @@ class KeyRecordRepository {
     var firestoreWriteFailed = false;
 
     for (final selected in keys) {
-      if (isLockedStatus(selected.status)) {
+      final selectedStatus = selected.status.trim();
+      if (isLockedStatus(selectedStatus)) {
         continue;
       }
 

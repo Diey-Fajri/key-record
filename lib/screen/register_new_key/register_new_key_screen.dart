@@ -23,6 +23,7 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
   final _qtyController = TextEditingController();
   final _doorIdController = TextEditingController();
   final _keyNameController = TextEditingController();
+  final _descriptionController = TextEditingController();
   final _staffNameController = TextEditingController();
   final _departmentController = TextEditingController();
   final _tenantNameController = TextEditingController();
@@ -98,6 +99,7 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
     _qtyController.dispose();
     _doorIdController.dispose();
     _keyNameController.dispose();
+    _descriptionController.dispose();
     _staffNameController.dispose();
     _departmentController.dispose();
     _tenantNameController.dispose();
@@ -197,11 +199,20 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                         },
                       ),
                     const SizedBox(height: 12),
-                    if (_category == 'Zone' || _category == 'Others' || _category == 'High Risk') ...[
+                    if (_category == 'Zone') ...[
                       TextFormField(
                         controller: _zoneController,
                         decoration: _inputDecoration('Zone', Icons.map),
                         validator: _required,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (_category == 'High Risk' || _category == 'Others') ...[
+                      TextFormField(
+                        controller: _descriptionController,
+                        decoration: _inputDecoration('Description', Icons.notes_outlined),
+                        validator: _optional,
+                        maxLines: 2,
                       ),
                       const SizedBox(height: 12),
                     ],
@@ -423,7 +434,8 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
       'location': location,
       'level': level,
       'doorId': _doorIdController.text.trim(),
-      'zone': _zoneController.text.trim(),
+      'zone': _resolvePrimaryZoneValue(),
+      'description': _descriptionController.text.trim(),
       'masterKey': _masterKeyController.text.trim(),
       'lotKey': _lotKeyController.text.trim(),
       'rollerLevelNo': _rollerLevelNoController.text.trim(),
@@ -446,7 +458,7 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
     try {
       await KeyRecordRepository.registerNewKey(
         keyId: keyId,
-        zone: _zoneController.text.trim().isEmpty ? location : _zoneController.text.trim(),
+        zone: _resolvePrimaryZoneValue(),
         keyName: keyName,
         category: category,
         status: finalStatus,
@@ -539,6 +551,18 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
     return value.trim();
   }
 
+  String _resolvePrimaryZoneValue() {
+    if (_category == 'High Risk' || _category == 'Others') {
+      return _descriptionController.text.trim().isNotEmpty
+          ? _descriptionController.text.trim()
+          : _location;
+    }
+    if (_category == 'Zone') {
+      return _zoneController.text.trim().isEmpty ? _location : _zoneController.text.trim();
+    }
+    return _zoneController.text.trim().isEmpty ? _location : _zoneController.text.trim();
+  }
+
   String _levelDisplayLabel(String level) {
     if (level == 'B2' || level == 'B1') {
       return 'Level $level';
@@ -554,8 +578,11 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
   }
 
   void _clearFieldsForCategory(String category) {
-    if (category != 'Zone' && category != 'Others' && category != 'High Risk') {
+    if (category != 'Zone') {
       _zoneController.clear();
+    }
+    if (category != 'High Risk' && category != 'Others') {
+      _descriptionController.clear();
     }
     if (category != 'Master Key') {
       _masterKeyController.clear();

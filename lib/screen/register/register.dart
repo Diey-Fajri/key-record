@@ -130,6 +130,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                   zone: _keyLevelZone(record),
                                   name: record.keyName,
                                   status: record.status,
+                                  category: record.category,
+                                  metadata: record.metadata,
                                 ))
                             .toList();
 
@@ -145,8 +147,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             }
 
                             return availableKeys.where((key) {
+                              final zoneVal = (key.metadata['zone']?.toString() ?? '').toLowerCase();
+                              final masterVal = (key.metadata['masterKey']?.toString() ?? '').toLowerCase();
+                              final lotVal = (key.metadata['lotKey']?.toString() ?? '').toLowerCase();
+                              final rollerVal = (key.metadata['rollerNumber']?.toString() ?? '').toLowerCase();
                               final label =
-                                  '${key.keyId} ${key.zone} ${key.name} ${key.status}'
+                                  '${key.keyId} ${key.zone} ${key.category} ${key.name} $zoneVal $masterVal $lotVal $rollerVal'
                                       .toLowerCase();
                               return label.contains(query);
                             });
@@ -185,9 +191,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                     itemBuilder: (context, index) {
                                       final key = options.elementAt(index);
                                       return ListTile(
-                                        leading: const Icon(Icons.vpn_key_outlined),
-                                        title: Text(key.displayLabel),
-                                        subtitle: Text('ID: ${key.keyId}'),
+                                        dense: true,
+                                        contentPadding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 4,
+                                        ),
+                                        leading: const Icon(
+                                          Icons.vpn_key_outlined,
+                                          color: Color(0xFF1E3A5F),
+                                        ),
+                                        title: Text(
+                                          key.primaryTitle,
+                                          style: const TextStyle(fontWeight: FontWeight.w700),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        subtitle: key.secondaryTitle.isEmpty
+                                            ? null
+                                            : Text(
+                                                key.secondaryTitle,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(color: Colors.black54),
+                                              ),
                                         trailing: _AvailabilityTag(
                                           status: key.status,
                                         ),
@@ -497,14 +523,31 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
     final currentKeys = await repository.KeyRecordRepository.watchAllKeys().first;
-    final keyByDocId = <String, repository.KeyRecord>{
-      for (final key in currentKeys)
-        if ((key.docId?.trim().isNotEmpty ?? false)) key.docId!.trim(): key,
-    };
-    final selectedRecords = _selectedKeys
-        .map((selected) => keyByDocId[selected.docId])
-        .whereType<repository.KeyRecord>()
-        .toList(growable: false);
+    final selectedRecords = <repository.KeyRecord>[];
+    for (final selected in _selectedKeys) {
+      final candidate = repository.KeyRecord(
+        docId: selected.docId.trim().isEmpty ? null : selected.docId.trim(),
+        keyId: selected.keyId,
+        zone: selected.zone,
+        keyName: selected.name,
+        borrowerName: '',
+        icPassport: '',
+        phoneNumber: '',
+        company: '',
+        purpose: '',
+        status: selected.status,
+        takenAt: DateTime.now(),
+        category: selected.category,
+        metadata: selected.metadata,
+      );
+      final match = currentKeys.cast<repository.KeyRecord?>().firstWhere(
+        (key) => key != null && repository.KeyRecordRepository.recordsMatch(candidate, key!),
+        orElse: () => null,
+      );
+      if (match != null) {
+        selectedRecords.add(match);
+      }
+    }
     if (selectedRecords.length != _selectedKeys.length) {
       _showMessage('One or more selected keys are no longer available. Please reselect keys.');
       return;
@@ -918,21 +961,29 @@ class _SelectedKeysPanel extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            key.displayLabel,
+                            key.primaryTitle,
                             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                   fontWeight: FontWeight.w700,
                                 ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'Key ID: ${key.keyId}',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  color: Colors.black54,
-                                ),
-                          ),
+                          if (key.secondaryTitle.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              key.secondaryTitle,
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: Colors.black54,
+                                  ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
                         ],
                       ),
                     ),
+                    _AvailabilityTag(status: key.status),
+                    const SizedBox(width: 8),
                     IconButton(
                       tooltip: 'Remove key',
                       onPressed: () => onRemove(key),
@@ -956,6 +1007,8 @@ class AvailableKey {
     required this.zone,
     required this.name,
     required this.status,
+    this.category = '',
+    this.metadata = const {},
   });
 
   final String docId;
@@ -963,10 +1016,165 @@ class AvailableKey {
   final String zone;
   final String name;
   final String status;
+  final String category;
+  final Map<String, dynamic> metadata;
 
-  String get displayLabel => '$zone • $name';
+  String get primaryTitle {
+    final levelLabel = _levelLabel();
 
-  String get searchLabel => '$keyId $zone $name';
+    switch (category) {
+      case 'Zone':
+        final zoneValue = _zoneValue();
+        final titleParts = <String>[];
+        if (levelLabel.isNotEmpty) {
+          titleParts.add(levelLabel);
+        }
+        if (zoneValue.isNotEmpty) {
+          titleParts.add(zoneValue);
+        }
+        return titleParts.isEmpty ? _displayName : titleParts.join(' / ');
+      case 'Master Key':
+        final masterValue = _formatMasterKeyValue((metadata['masterKey']?.toString() ?? '').trim());
+        if (masterValue.isNotEmpty) {
+          return 'Master Key $masterValue';
+        }
+        return 'Master Key';
+      case 'Lot':
+        final titleParts = <String>[];
+        final normalizedLevel = _formatLevelLabel(levelLabel);
+        if (normalizedLevel.isNotEmpty) {
+          titleParts.add('Lot $normalizedLevel');
+        } else {
+          titleParts.add('Lot');
+        }
+        final lotValue = (metadata['lotKey']?.toString() ?? '').trim();
+        titleParts.add(lotValue.isNotEmpty ? lotValue : 'No. Lot Key');
+        return titleParts.join(' / ');
+      case 'Roller Shutter':
+        final titleParts = <String>[];
+        final rollerLevelValue = (metadata['rollerLevelNo']?.toString() ?? '').trim();
+        final normalizedLevel = _formatLevelLabel(rollerLevelValue.isNotEmpty ? rollerLevelValue : levelLabel);
+        if (normalizedLevel.isNotEmpty) {
+          titleParts.add('Roller Shutter $normalizedLevel');
+        } else {
+          titleParts.add('Roller Shutter');
+        }
+        final rollerValue = (metadata['rollerNumber']?.toString() ?? '').trim();
+        titleParts.add(rollerValue.isNotEmpty ? rollerValue : 'No. Roller shutter');
+        return titleParts.join(' / ');
+      case 'High Risk':
+      case 'Others':
+      default:
+        return _displayName;
+    }
+  }
+
+  String get secondaryTitle {
+    if (category == 'Zone' || category == 'Master Key') {
+      return _displayName;
+    }
+    return '';
+  }
+
+  String get displayLabel => primaryTitle;
+
+  String get searchLabel => '$keyId $zone $category $name';
+
+  String get _displayName {
+    final cleanedName = name.trim();
+    return cleanedName.isNotEmpty ? cleanedName : 'Unnamed Key';
+  }
+
+  String _levelLabel() {
+    final metadataLevel = (metadata['level']?.toString() ?? '').trim();
+    if (metadataLevel.isNotEmpty) {
+      return metadataLevel;
+    }
+
+    final parsedLevel = _parseLevelFromValue(zone);
+    if (parsedLevel != null) {
+      return parsedLevel;
+    }
+
+    final metadataZoneValue = (metadata['zone']?.toString() ?? '').trim();
+    return _parseLevelFromValue(metadataZoneValue) ?? '';
+  }
+
+  String _zoneValue() {
+    final metadataZoneValue = (metadata['zone']?.toString() ?? '').trim();
+    if (metadataZoneValue.isNotEmpty) {
+      final parsed = _parseLevelAndZone(metadataZoneValue);
+      if (parsed != null) {
+        return parsed['zone']!;
+      }
+      return metadataZoneValue;
+    }
+
+    final parsed = _parseLevelAndZone(zone);
+    if (parsed != null) {
+      return parsed['zone']!;
+    }
+
+    return zone.trim();
+  }
+
+  String _formatMasterKeyValue(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return '';
+    }
+
+    final withoutPrefix = trimmed.replaceFirst(
+      RegExp(r'^\s*(master\s+key)\s+', caseSensitive: false),
+      '',
+    );
+    return withoutPrefix.trim();
+  }
+
+  String _formatLevelLabel(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return '';
+    }
+
+    final levelMatch = RegExp(r'^(?:level\s*)?([Ll])(\d{1,2})$', caseSensitive: false).firstMatch(trimmed);
+    if (levelMatch != null) {
+      return 'Level ${levelMatch.group(2)}';
+    }
+
+    return trimmed;
+  }
+
+  String? _parseLevelFromValue(String value) {
+    final normalized = value.trim();
+    if (normalized.isEmpty) {
+      return null;
+    }
+
+    final match = RegExp(r'([Ll]\d{1,2}|[Bb][12])').firstMatch(normalized);
+    if (match == null) {
+      return null;
+    }
+
+    return match.group(1)!.toUpperCase();
+  }
+
+  Map<String, String>? _parseLevelAndZone(String value) {
+    final normalized = value.trim();
+    if (normalized.isEmpty || !normalized.contains('/')) {
+      return null;
+    }
+
+    final parts = normalized.split('/').map((part) => part.trim()).where((part) => part.isNotEmpty).toList();
+    if (parts.length < 2) {
+      return null;
+    }
+
+    return {
+      'level': parts.first,
+      'zone': parts.sublist(1).join(' / '),
+    };
+  }
 }
 
 InputDecoration _inputDecoration(String label, IconData icon, {String? hint}) {

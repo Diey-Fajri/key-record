@@ -140,8 +140,16 @@ class _HandOverKeyScreenState extends State<HandOverKeyScreen> {
                       final record = records[index];
                       return ListTile(
                         dense: true,
-                        title: Text(_keyListLabel(record)),
-                        subtitle: Text('${record.keyId} • ${record.zone} • ${record.category}'),
+                        title: Text(
+                          _keyListLabel(record),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: Text(
+                          _keyListSubtitle(record),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                         trailing: _StatusPill(status: record.status),
                       );
                     },
@@ -539,11 +547,15 @@ class _HandOverKeyScreenState extends State<HandOverKeyScreen> {
                               itemBuilder: (context, index) {
                                 final key = filtered[index];
                                 return ListTile(
+                                  dense: true,
                                   title: Text(
                                     _keyListLabel(key),
                                     overflow: TextOverflow.ellipsis,
                                   ),
-                                  subtitle: Text('${key.keyId} • ${_keySearchSubtitle(key)}'),
+                                  subtitle: Text(
+                                    _keyListSubtitle(key),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                   onTap: () {
                                     setState(() {
                                       row.selectedKeyId = key.keyId;
@@ -597,25 +609,59 @@ class _HandOverKeyScreenState extends State<HandOverKeyScreen> {
         .join(' ');
   }
 
-  String _keySearchSubtitle(KeyRecord key) {
+  String _keyListSubtitle(KeyRecord key) {
     final level = key.metadata['level']?.toString().trim() ?? '';
     final zone = (key.metadata['zone']?.toString().trim().isNotEmpty ?? false)
         ? key.metadata['zone'].toString().trim()
         : key.zone;
-    final position = key.metadata['position']?.toString().trim() ?? '';
-    final location = key.metadata['location']?.toString().trim() ?? '';
+    final lotNo = key.metadata['lotKey']?.toString().trim() ?? '';
+    final masterKey = key.metadata['masterKey']?.toString().trim() ?? '';
     final rollerNo = key.metadata['rollerNumber']?.toString().trim() ?? '';
+    final name = key.keyName.trim();
 
-    final parts = <String>[
-      if (level.isNotEmpty) 'Level $level',
-      if (zone.trim().isNotEmpty) 'Zone $zone',
-      if (position.isNotEmpty) 'Position $position',
-      if (location.isNotEmpty) 'Location $location',
-      if (rollerNo.isNotEmpty) 'Roller $rollerNo',
-      key.status,
-    ];
+    if (key.category == 'Zone') {
+      final parts = <String>[];
+      if (level.isNotEmpty) {
+        parts.add(level);
+      }
+      if (zone.trim().isNotEmpty) {
+        parts.add(zone);
+      }
+      return parts.isEmpty ? name : parts.join(' / ');
+    }
 
-    return parts.join(' • ');
+    if (key.category == 'Master Key') {
+      final parts = <String>[];
+      if (level.isNotEmpty) {
+        parts.add(level);
+      }
+      parts.add(masterKey.isNotEmpty ? masterKey : 'Master key');
+      return parts.join(' / ');
+    }
+
+    if (key.category == 'Lot') {
+      final parts = <String>[];
+      if (level.isNotEmpty) {
+        parts.add(level);
+      }
+      parts.add(lotNo.isNotEmpty ? lotNo : 'No. Lot Key');
+      return parts.join(' / ');
+    }
+
+    if (key.category == 'Roller Shutter') {
+      final parts = <String>[];
+      if (level.isNotEmpty) {
+        parts.add(level);
+      }
+      parts.add(rollerNo.isNotEmpty ? rollerNo : 'No. Roller shutter');
+      return parts.join(' / ');
+    }
+
+    if (key.category == 'High Risk' || key.category == 'Others') {
+      return '';
+    }
+
+    return name.isNotEmpty ? name : key.keyId;
   }
 
   String _keyListLabel(KeyRecord key) {
