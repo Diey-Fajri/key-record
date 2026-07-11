@@ -507,7 +507,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
-<<<<<<< HEAD
     if (_selectedKeys.isEmpty) {
       _showMessage('Please add at least one available key.');
       return;
@@ -570,8 +569,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
-=======
->>>>>>> 2c95a18ceb0874e55ffa57976d146aae12e85e2b
     setState(() => _isSubmitting = true);
 
     try {
