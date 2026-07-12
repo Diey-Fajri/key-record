@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -16,9 +17,12 @@ class NotificationService {
 
   static const String _channelId = 'security_alerts';
   static const String _channelName = 'Security Alerts';
-  static const String _channelDescription = 'Notifications for all security updates.';
+  static const String _channelDescription =
+      'Notifications for all security updates.';
 
-  static Future<void> initialize({required GlobalKey<NavigatorState> navigatorKey}) async {
+  static Future<void> initialize({
+    required GlobalKey<NavigatorState> navigatorKey,
+  }) async {
     _navigatorKey = navigatorKey;
 
     if (Platform.isAndroid) {
@@ -47,7 +51,9 @@ class NotificationService {
       importance: Importance.high,
     );
     await _localNotificationsPlugin
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
         ?.createNotificationChannel(androidChannel);
   }
 

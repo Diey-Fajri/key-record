@@ -4,6 +4,7 @@ class AppUpdateInfo {
     required this.latestVersion,
     required this.releaseNotes,
     required this.apkStoragePath,
+    required this.apkUrl,
     required this.forceUpdate,
     required this.minimumVersion,
   });
@@ -28,8 +29,12 @@ class AppUpdateInfo {
 
   factory AppUpdateInfo.fromFirestore(Map<String, dynamic> data) {
     final latestVersion = (data['latestVersion'] ?? '').toString().trim();
-    final apkStoragePath = (data['apkStoragePath'] ?? data['storagePath'] ?? '').toString().trim();
-    final apkUrl = (data['apkUrl'] ?? data['downloadUrl'] ?? '').toString().trim();
+    final apkStoragePath = (data['apkStoragePath'] ?? data['storagePath'] ?? '')
+        .toString()
+        .trim();
+    final apkUrl = (data['apkUrl'] ?? data['downloadUrl'] ?? '')
+        .toString()
+        .trim();
     final releaseNotes = (data['releaseNotes'] ?? '').toString().trim();
     final forceUpdate = data['forceUpdate'] == true;
     final minimumVersion = (data['minimumVersion'] ?? '').toString().trim();
