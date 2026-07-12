@@ -33,6 +33,7 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
     'Lot',
     'Roller Shutter',
     'Lost',
+    'Not Available',
     'Hand Over',
     'Damaged',
     'Replaced',
@@ -45,6 +46,7 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
     'No Return',
     'At Maintenance',
     'Lost',
+    'Not Available',
     'Hand Over',
     'Damaged',
     'Replaced',
@@ -95,16 +97,16 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
                     Text(
                       'Navigation',
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                          ),
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                     const SizedBox(height: 6),
                     Text(
                       'Choose a category button, then filter by level.',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Colors.white.withValues(alpha: 0.85),
-                          ),
+                        color: Colors.white.withValues(alpha: 0.85),
+                      ),
                     ),
                   ],
                 ),
@@ -125,10 +127,12 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
                       });
                     },
                     style: FilledButton.styleFrom(
-                      backgroundColor:
-                          selected ? const Color(0xFF263238) : Colors.white,
-                      foregroundColor:
-                          selected ? Colors.white : const Color(0xFF263238),
+                      backgroundColor: selected
+                          ? const Color(0xFF263238)
+                          : Colors.white,
+                      foregroundColor: selected
+                          ? Colors.white
+                          : const Color(0xFF263238),
                       side: BorderSide(
                         color: selected
                             ? const Color(0xFF263238)
@@ -156,8 +160,8 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
                   child: Text(
                     'Level',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ),
@@ -175,7 +179,12 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
                     ),
                   ),
                   items: _levelOptions
-                      .map((level) => DropdownMenuItem(value: level, child: Text(_displayLevelLabel(level))))
+                      .map(
+                        (level) => DropdownMenuItem(
+                          value: level,
+                          child: Text(_displayLevelLabel(level)),
+                        ),
+                      )
                       .toList(),
                   onChanged: (value) {
                     if (value != null) {
@@ -191,12 +200,15 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
                 stream: KeyRecordRepository.watchAllKeys(),
                 builder: (context, snapshot) {
                   final keys = _filteredKeys(snapshot.data ?? const []);
-                  if (snapshot.connectionState == ConnectionState.waiting && keys.isEmpty) {
+                  if (snapshot.connectionState == ConnectionState.waiting &&
+                      keys.isEmpty) {
                     return const Center(child: CircularProgressIndicator());
                   }
 
                   if (keys.isEmpty) {
-                    return const Center(child: Text('No key records for this selection.'));
+                    return const Center(
+                      child: Text('No key records for this selection.'),
+                    );
                   }
 
                   final grouped = _groupByLevel(keys);
@@ -232,7 +244,10 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
   List<KeyRecord> _filteredKeys(List<KeyRecord> keys) {
     final filtered = keys.where((record) {
       final navigationMatches = _matchesNavigation(record);
-      final levelMatches = !_navigationUsesLevel || _selectedLevel == 'All' || _recordLevel(record) == _selectedLevel;
+      final levelMatches =
+          !_navigationUsesLevel ||
+          _selectedLevel == 'All' ||
+          _recordLevel(record) == _selectedLevel;
       return navigationMatches && levelMatches;
     }).toList();
 
@@ -305,7 +320,8 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
   }
 
   String _sortKey(KeyRecord record) {
-    return '${_topKeyLabel(record, _selectedNavigation)} ${record.keyId}'.toLowerCase();
+    return '${_topKeyLabel(record, _selectedNavigation)} ${record.keyId}'
+        .toLowerCase();
   }
 
   String _recordLevel(KeyRecord record) {
@@ -358,9 +374,11 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
     final zoneField = record.metadata['zone']?.toString().trim() ?? '';
     final masterField = record.metadata['masterKey']?.toString().trim() ?? '';
     final lotField = record.metadata['lotKey']?.toString().trim() ?? '';
-    final rollerField = record.metadata['rollerNumber']?.toString().trim() ?? '';
+    final rollerField =
+        record.metadata['rollerNumber']?.toString().trim() ?? '';
     final category = record.category;
-    final effectiveCategory = selectedNavigation == 'All' ||
+    final effectiveCategory =
+        selectedNavigation == 'All' ||
             selectedNavigation == 'High Risk' ||
             selectedNavigation == 'Lost' ||
             selectedNavigation == 'Hand Over' ||
@@ -377,7 +395,8 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
     if (effectiveCategory == 'Roller Shutter') {
       final rollerNo = rollerField.isNotEmpty
           ? rollerField
-          : (record.metadata['rollerLevelNo']?.toString().trim() ?? record.keyName);
+          : (record.metadata['rollerLevelNo']?.toString().trim() ??
+                record.keyName);
       return _combineLevelAndValue(level, rollerNo);
     }
 
@@ -411,10 +430,7 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
 }
 
 class _LevelSection extends StatelessWidget {
-  const _LevelSection({
-    required this.levelLabel,
-    required this.records,
-  });
+  const _LevelSection({required this.levelLabel, required this.records});
 
   final String levelLabel;
   final List<KeyRecord> records;
@@ -437,9 +453,9 @@ class _LevelSection extends StatelessWidget {
             children: [
               Text(
                 _displayLevelLabel(levelLabel),
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
               ),
               const SizedBox(width: 8),
               Container(
@@ -462,10 +478,7 @@ class _LevelSection extends StatelessWidget {
           ...groupedRecords.entries.map((entry) {
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: _FolderGroupCard(
-                label: entry.key,
-                records: entry.value,
-              ),
+              child: _FolderGroupCard(label: entry.key, records: entry.value),
             );
           }),
         ],
@@ -484,9 +497,7 @@ class _LevelSection extends StatelessWidget {
     final sortedEntries = grouped.entries.toList()
       ..sort((a, b) => _folderOrder(a.key).compareTo(_folderOrder(b.key)));
 
-    return {
-      for (final entry in sortedEntries) entry.key: entry.value,
-    };
+    return {for (final entry in sortedEntries) entry.key: entry.value};
   }
 
   String _folderLabelForRecord(KeyRecord record) {
@@ -495,7 +506,9 @@ class _LevelSection extends StatelessWidget {
     }
 
     if (record.category == 'Roller Shutter') {
-      return levelLabel == 'Other' ? 'Roller Shutter' : 'Roller Shutter (${_displayLevelLabel(levelLabel)})';
+      return levelLabel == 'Other'
+          ? 'Roller Shutter'
+          : 'Roller Shutter (${_displayLevelLabel(levelLabel)})';
     }
 
     return record.category;
@@ -504,8 +517,8 @@ class _LevelSection extends StatelessWidget {
   String _zoneFolderLabel(KeyRecord record) {
     final zoneRaw =
         (record.metadata['zone']?.toString().trim().isNotEmpty ?? false)
-            ? record.metadata['zone'].toString().trim()
-            : record.zone.trim();
+        ? record.metadata['zone'].toString().trim()
+        : record.zone.trim();
     final upper = zoneRaw.toUpperCase();
     final trailingAlpha = RegExp(r'([A-Z]+)$').firstMatch(upper)?.group(1);
     if (trailingAlpha != null && trailingAlpha.isNotEmpty) {
@@ -540,10 +553,7 @@ class _LevelSection extends StatelessWidget {
 }
 
 class _FolderGroupCard extends StatelessWidget {
-  const _FolderGroupCard({
-    required this.label,
-    required this.records,
-  });
+  const _FolderGroupCard({required this.label, required this.records});
 
   final String label;
   final List<KeyRecord> records;
@@ -562,9 +572,9 @@ class _FolderGroupCard extends StatelessWidget {
         leading: const Icon(Icons.folder_outlined, color: Color(0xFF1E3A5F)),
         title: Text(
           label,
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
         ),
         trailing: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -584,9 +594,7 @@ class _FolderGroupCard extends StatelessWidget {
             .map(
               (record) => Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: _KeyRecordCard(
-                  record: record,
-                ),
+                child: _KeyRecordCard(record: record),
               ),
             )
             .toList(growable: false),
@@ -596,9 +604,7 @@ class _FolderGroupCard extends StatelessWidget {
 }
 
 class _KeyRecordCard extends StatelessWidget {
-  const _KeyRecordCard({
-    required this.record,
-  });
+  const _KeyRecordCard({required this.record});
 
   final KeyRecord record;
 
@@ -632,16 +638,16 @@ class _KeyRecordCard extends StatelessWidget {
                   Text(
                     primaryLabel,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   if (secondaryLabel.isNotEmpty) ...[
                     const SizedBox(height: 6),
                     Text(
                       secondaryLabel,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Colors.black54,
-                          ),
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodySmall?.copyWith(color: Colors.black54),
                     ),
                   ],
                 ],
@@ -660,7 +666,10 @@ class _KeyRecordCard extends StatelessWidget {
     final level = _recordLevel(record);
     if (record.category == 'Zone') {
       final zoneValue = (record.metadata['zone']?.toString() ?? '').trim();
-      return _combineLevelAndValue(level, zoneValue.isNotEmpty ? zoneValue : record.zone);
+      return _combineLevelAndValue(
+        level,
+        zoneValue.isNotEmpty ? zoneValue : record.zone,
+      );
     }
 
     if (record.category == 'Master Key') {
@@ -671,13 +680,20 @@ class _KeyRecordCard extends StatelessWidget {
 
     if (record.category == 'Lot') {
       final lotNo = (record.metadata['lotKey']?.toString() ?? '').trim();
-      return _combineLevelAndValue(level, lotNo.isNotEmpty ? lotNo : record.keyName);
+      return _combineLevelAndValue(
+        level,
+        lotNo.isNotEmpty ? lotNo : record.keyName,
+      );
     }
 
     if (record.category == 'Roller Shutter') {
-      final rollerNo = (record.metadata['rollerNumber']?.toString() ?? '').trim();
+      final rollerNo = (record.metadata['rollerNumber']?.toString() ?? '')
+          .trim();
       final fallback = record.keyName.trim();
-      return _combineLevelAndValue(level, rollerNo.isNotEmpty ? rollerNo : fallback);
+      return _combineLevelAndValue(
+        level,
+        rollerNo.isNotEmpty ? rollerNo : fallback,
+      );
     }
 
     if (record.category == 'High Risk' || record.category == 'Others') {
@@ -762,7 +778,6 @@ class _KeyRecordCard extends StatelessWidget {
     }
     return cleanLevel.isNotEmpty ? cleanLevel : 'Unnamed Key';
   }
-
 }
 
 class _StatusChip extends StatelessWidget {
@@ -775,22 +790,26 @@ class _StatusChip extends StatelessWidget {
     final backgroundColor = status == 'Available'
         ? const Color(0xFFE7F5EA)
         : status == 'In Use'
-            ? const Color(0xFFE8F3F1)
-            : status == 'Hand Over'
-                ? const Color(0xFFE9EEF6)
-                : status == 'Damaged' || status == 'Replaced'
-                    ? const Color(0xFFFFF3E0)
-                    : const Color(0xFFFFE5E5);
+        ? const Color(0xFFE8F3F1)
+        : status == 'Hand Over'
+        ? const Color(0xFFE9EEF6)
+        : status == 'Damaged' || status == 'Replaced'
+        ? const Color(0xFFFFF3E0)
+        : status == 'Not Available'
+        ? const Color(0xFFFFF4E5)
+        : const Color(0xFFFFE5E5);
 
     final textColor = status == 'Available'
         ? const Color(0xFF2E7D32)
         : status == 'In Use'
-            ? const Color(0xFF00695C)
-            : status == 'Hand Over'
-                ? const Color(0xFF1E3A5F)
-                : status == 'Damaged' || status == 'Replaced'
-                    ? const Color(0xFFEF6C00)
-                    : const Color(0xFFC62828);
+        ? const Color(0xFF00695C)
+        : status == 'Hand Over'
+        ? const Color(0xFF1E3A5F)
+        : status == 'Damaged' || status == 'Replaced'
+        ? const Color(0xFFEF6C00)
+        : status == 'Not Available'
+        ? const Color(0xFF8D6E63)
+        : const Color(0xFFC62828);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -804,6 +823,4 @@ class _StatusChip extends StatelessWidget {
       ),
     );
   }
-
 }
-

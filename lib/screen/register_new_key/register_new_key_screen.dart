@@ -60,6 +60,7 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
     'At Maintenance',
     'Available',
     'Lost',
+    'Not Available',
     'High Risk',
     'Spare Key',
   ];
@@ -69,6 +70,7 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
     'At Maintenance',
     'Available',
     'Lost',
+    'Not Available',
     'Hand Over',
     'High Risk',
     'Spare Key',
@@ -135,10 +137,12 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                       initialValue: _category,
                       decoration: _inputDecoration('Category', Icons.category),
                       items: _categories
-                          .map((category) => DropdownMenuItem(
-                                value: category,
-                                child: Text(category),
-                              ))
+                          .map(
+                            (category) => DropdownMenuItem(
+                              value: category,
+                              child: Text(category),
+                            ),
+                          )
                           .toList(),
                       onChanged: (value) {
                         if (value != null) {
@@ -147,7 +151,9 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                             if (_category == 'High Risk') {
                               _status = 'High Risk';
                             } else {
-                              _status = _category == 'Lot' || _category == 'Roller Shutter'
+                              _status =
+                                  _category == 'Lot' ||
+                                      _category == 'Roller Shutter'
                                   ? _lotStatusOptions.first
                                   : _zoneStatusOptions.first;
                             }
@@ -162,12 +168,17 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
                       initialValue: _location,
-                      decoration: _inputDecoration('Location', Icons.location_on),
+                      decoration: _inputDecoration(
+                        'Location',
+                        Icons.location_on,
+                      ),
                       items: _locations
-                          .map((location) => DropdownMenuItem(
-                                value: location,
-                                child: Text(location),
-                              ))
+                          .map(
+                            (location) => DropdownMenuItem(
+                              value: location,
+                              child: Text(location),
+                            ),
+                          )
                           .toList(),
                       onChanged: (value) {
                         if (value != null) {
@@ -179,7 +190,10 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                     if (_category == 'Master Key')
                       TextFormField(
                         controller: _masterLevelController,
-                        decoration: _inputDecoration('Level (Optional)', Icons.stairs),
+                        decoration: _inputDecoration(
+                          'Level (Optional)',
+                          Icons.stairs,
+                        ),
                         validator: _optional,
                       )
                     else
@@ -187,10 +201,12 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                         initialValue: _level,
                         decoration: _inputDecoration('Level', Icons.stairs),
                         items: _getLevelOptions()
-                            .map((level) => DropdownMenuItem(
-                                  value: level,
-                              child: Text(_levelDisplayLabel(level)),
-                                ))
+                            .map(
+                              (level) => DropdownMenuItem(
+                                value: level,
+                                child: Text(_levelDisplayLabel(level)),
+                              ),
+                            )
                             .toList(),
                         onChanged: (value) {
                           if (value != null) {
@@ -210,7 +226,10 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                     if (_category == 'High Risk' || _category == 'Others') ...[
                       TextFormField(
                         controller: _descriptionController,
-                        decoration: _inputDecoration('Description', Icons.notes_outlined),
+                        decoration: _inputDecoration(
+                          'Description',
+                          Icons.notes_outlined,
+                        ),
                         validator: _optional,
                         maxLines: 2,
                       ),
@@ -219,7 +238,10 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                     if (_category == 'Master Key') ...[
                       TextFormField(
                         controller: _masterKeyController,
-                        decoration: _inputDecoration('Master Key', Icons.vpn_key),
+                        decoration: _inputDecoration(
+                          'Master Key',
+                          Icons.vpn_key,
+                        ),
                         validator: _required,
                       ),
                       const SizedBox(height: 12),
@@ -235,7 +257,10 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                     if (_category == 'Roller Shutter') ...[
                       TextFormField(
                         controller: _rollerLevelNoController,
-                        decoration: _inputDecoration('Level / No. (e.g. L8 / 190)', Icons.tune),
+                        decoration: _inputDecoration(
+                          'Level / No. (e.g. L8 / 190)',
+                          Icons.tune,
+                        ),
                         validator: _required,
                       ),
                       const SizedBox(height: 12),
@@ -247,14 +272,20 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: _rollerNumberController,
-                        decoration: _inputDecoration('No. Roller Shutter', Icons.numbers),
+                        decoration: _inputDecoration(
+                          'No. Roller Shutter',
+                          Icons.numbers,
+                        ),
                         validator: _required,
                       ),
                       const SizedBox(height: 12),
                     ],
                     TextFormField(
                       controller: _qtyController,
-                      decoration: _inputDecoration('Qty', Icons.confirmation_num),
+                      decoration: _inputDecoration(
+                        'Qty',
+                        Icons.confirmation_num,
+                      ),
                       keyboardType: TextInputType.number,
                       validator: _required,
                     ),
@@ -262,7 +293,10 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                     if (_category != 'Roller Shutter') ...[
                       TextFormField(
                         controller: _doorIdController,
-                        decoration: _inputDecoration('Door ID (Optional)', Icons.door_front_door),
+                        decoration: _inputDecoration(
+                          'Door ID (Optional)',
+                          Icons.door_front_door,
+                        ),
                         validator: _optional,
                       ),
                       const SizedBox(height: 12),
@@ -271,7 +305,9 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                       TextFormField(
                         controller: _keyNameController,
                         decoration: _inputDecoration(
-                          _category == 'Lot' ? 'Key Name (Optional)' : 'Key Name',
+                          _category == 'Lot'
+                              ? 'Key Name (Optional)'
+                              : 'Key Name',
                           Icons.key,
                         ),
                         validator: _category == 'Lot' ? _optional : _required,
@@ -280,12 +316,17 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                     ],
                     DropdownButtonFormField<String>(
                       initialValue: _status,
-                      decoration: _inputDecoration('Status', Icons.info_outline),
+                      decoration: _inputDecoration(
+                        'Status',
+                        Icons.info_outline,
+                      ),
                       items: _getStatusOptions()
-                          .map((status) => DropdownMenuItem(
-                                value: status,
-                                child: Text(status),
-                              ))
+                          .map(
+                            (status) => DropdownMenuItem(
+                              value: status,
+                              child: Text(status),
+                            ),
+                          )
                           .toList(),
                       onChanged: (value) {
                         if (value != null) {
@@ -299,28 +340,36 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                       const SizedBox(height: 12),
                       Text(
                         'Status details',
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleSmall
-                            ?.copyWith(fontWeight: FontWeight.w700),
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: _staffNameController,
-                        decoration: _inputDecoration('Name Staff', Icons.person_outline),
+                        decoration: _inputDecoration(
+                          'Name Staff',
+                          Icons.person_outline,
+                        ),
                         validator: _required,
                       ),
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: _departmentController,
-                        decoration: _inputDecoration('Department', Icons.apartment),
+                        decoration: _inputDecoration(
+                          'Department',
+                          Icons.apartment,
+                        ),
                         validator: _required,
                       ),
                       if (_status == 'Hand Over') ...[
                         const SizedBox(height: 12),
                         TextFormField(
                           controller: _tenantNameController,
-                          decoration: _inputDecoration('Tenant’s Name', Icons.person_search),
+                          decoration: _inputDecoration(
+                            'Tenant’s Name',
+                            Icons.person_search,
+                          ),
                           validator: _required,
                         ),
                       ],
@@ -333,7 +382,10 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: _dateController,
-                        decoration: _inputDecoration('Date', Icons.calendar_today),
+                        decoration: _inputDecoration(
+                          'Date',
+                          Icons.calendar_today,
+                        ),
                         validator: _required,
                       ),
                       const SizedBox(height: 12),
@@ -370,13 +422,20 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
 
   List<String> _getLevelOptions() {
     if (_category == 'Lot') {
-      return ['B2', 'B1', 'Level 1', 'Level 2', 'Level 3', 'Level 4', 'Level 5', 'Level 6', 'Level 7', 'Level 8'];
+      return [
+        'B2',
+        'B1',
+        'Level 1',
+        'Level 2',
+        'Level 3',
+        'Level 4',
+        'Level 5',
+        'Level 6',
+        'Level 7',
+        'Level 8',
+      ];
     }
-    return [
-      'B2',
-      'B1',
-      for (var i = 1; i <= 40; i++) 'Level $i',
-    ];
+    return ['B2', 'B1', for (var i = 1; i <= 40; i++) 'Level $i'];
   }
 
   List<String> _getStatusOptions() {
@@ -419,7 +478,9 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
     if (_statusRequiresDetails() && !_validateStatusDetails()) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill all required status detail fields.')),
+        const SnackBar(
+          content: Text('Please fill all required status detail fields.'),
+        ),
       );
       return;
     }
@@ -451,7 +512,9 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
       'remarks': _remarksController.text.trim(),
     };
 
-    final recordedBy = AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin';
+    final recordedBy = AuthService.activeUser.isNotEmpty
+        ? AuthService.activeUser
+        : 'Security Admin';
     final finalStatus = status.isEmpty ? 'Available' : status;
 
     setState(() => _isSubmitting = true);
@@ -486,7 +549,9 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
       builder: (context) {
         return AlertDialog(
           title: const Text('Key Registered'),
-          content: Text('The key "$keyName" has been registered with status "$finalStatus".'),
+          content: Text(
+            'The key "$keyName" has been registered with status "$finalStatus".',
+          ),
           actions: [
             TextButton(
               onPressed: () {
@@ -514,22 +579,30 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
 
   String _generateKeyId() {
     final levelToken = _effectiveLevel()
-      .replaceAll('Level ', 'L')
-      .replaceAll(' ', '')
-      .toUpperCase();
-    final baseId = _category == 'Zone' || _category == 'Others' || _category == 'High Risk'
-      ? [if (levelToken.isNotEmpty) levelToken, _zoneController.text.trim()].where((value) => value.isNotEmpty).join('-')
+        .replaceAll('Level ', 'L')
+        .replaceAll(' ', '')
+        .toUpperCase();
+    final baseId =
+        _category == 'Zone' || _category == 'Others' || _category == 'High Risk'
+        ? [
+            if (levelToken.isNotEmpty) levelToken,
+            _zoneController.text.trim(),
+          ].where((value) => value.isNotEmpty).join('-')
         : _category == 'Master Key'
-        ? [if (levelToken.isNotEmpty) levelToken, _masterKeyController.text.trim()].where((value) => value.isNotEmpty).join('-')
-            : _category == 'Lot'
-          ? [if (levelToken.isNotEmpty) levelToken, _lotKeyController.text.trim()].where((value) => value.isNotEmpty).join('-')
-                : _rollerLevelNoController.text.trim();
+        ? [
+            if (levelToken.isNotEmpty) levelToken,
+            _masterKeyController.text.trim(),
+          ].where((value) => value.isNotEmpty).join('-')
+        : _category == 'Lot'
+        ? [
+            if (levelToken.isNotEmpty) levelToken,
+            _lotKeyController.text.trim(),
+          ].where((value) => value.isNotEmpty).join('-')
+        : _rollerLevelNoController.text.trim();
 
     final fallbackBase = baseId.isEmpty ? _location : baseId;
     final normalizedBase = fallbackBase.replaceAll(' ', '').toUpperCase();
-    final normalizedName = _resolveKeyName()
-      .replaceAll(' ', '')
-      .toUpperCase();
+    final normalizedName = _resolveKeyName().replaceAll(' ', '').toUpperCase();
     final normalizedCategory = _category.replaceAll(' ', '').toUpperCase();
     return '$normalizedCategory-$normalizedBase-$normalizedName';
   }
@@ -558,9 +631,13 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
           : _location;
     }
     if (_category == 'Zone') {
-      return _zoneController.text.trim().isEmpty ? _location : _zoneController.text.trim();
+      return _zoneController.text.trim().isEmpty
+          ? _location
+          : _zoneController.text.trim();
     }
-    return _zoneController.text.trim().isEmpty ? _location : _zoneController.text.trim();
+    return _zoneController.text.trim().isEmpty
+        ? _location
+        : _zoneController.text.trim();
   }
 
   String _levelDisplayLabel(String level) {
@@ -599,13 +676,17 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
   }
 
   bool _validateStatusDetails() {
-    if (_staffNameController.text.trim().isEmpty || _departmentController.text.trim().isEmpty) {
+    if (_staffNameController.text.trim().isEmpty ||
+        _departmentController.text.trim().isEmpty) {
       return false;
     }
     if (_status == 'Hand Over' && _tenantNameController.text.trim().isEmpty) {
       return false;
     }
-    if (_purposeController.text.trim().isEmpty || _dateController.text.trim().isEmpty || _timeController.text.trim().isEmpty || _remarksController.text.trim().isEmpty) {
+    if (_purposeController.text.trim().isEmpty ||
+        _dateController.text.trim().isEmpty ||
+        _timeController.text.trim().isEmpty ||
+        _remarksController.text.trim().isEmpty) {
       return false;
     }
     return true;
@@ -638,12 +719,18 @@ class _InfoCard extends StatelessWidget {
           Text('- Zone, Master Key, Lot, Roller Shutter, Others'),
           SizedBox(height: 12),
           Text('Status options:'),
-          Text('- At Management, At Maintenance, Available, Lost, High Risk, Spare Key, Hand Over'),
+          Text(
+            '- At Management, At Maintenance, Available, Lost, Not Available, High Risk, Spare Key, Hand Over',
+          ),
           SizedBox(height: 12),
-          Text('Status details appear for management, maintenance, lost, and hand over statuses.'),
+          Text(
+            'Status details appear for management, maintenance, lost, not available, and hand over statuses.',
+          ),
           SizedBox(height: 12),
           Text('Recorded By is set to the current logged-in user.'),
-          Text('Keys are saved to Firestore keys collection and event log is created.'),
+          Text(
+            'Keys are saved to Firestore keys collection and event log is created.',
+          ),
         ],
       ),
     );
@@ -671,10 +758,9 @@ class _Section extends StatelessWidget {
         children: [
           Text(
             title,
-            style: Theme.of(context)
-                .textTheme
-                .titleMedium
-                ?.copyWith(fontWeight: FontWeight.w800),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 14),
           child,

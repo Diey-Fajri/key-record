@@ -17,6 +17,9 @@ class AppUpdateInfo {
   /// Firebase Storage path (or gs:// URL) to the APK.
   final String apkStoragePath;
 
+  /// Direct HTTP/HTTPS URL to the APK (for GitHub-hosted download links).
+  final String apkUrl;
+
   /// If true, user should not skip the update.
   final bool forceUpdate;
 
@@ -26,6 +29,7 @@ class AppUpdateInfo {
   factory AppUpdateInfo.fromFirestore(Map<String, dynamic> data) {
     final latestVersion = (data['latestVersion'] ?? '').toString().trim();
     final apkStoragePath = (data['apkStoragePath'] ?? data['storagePath'] ?? '').toString().trim();
+    final apkUrl = (data['apkUrl'] ?? data['downloadUrl'] ?? '').toString().trim();
     final releaseNotes = (data['releaseNotes'] ?? '').toString().trim();
     final forceUpdate = data['forceUpdate'] == true;
     final minimumVersion = (data['minimumVersion'] ?? '').toString().trim();
@@ -34,6 +38,7 @@ class AppUpdateInfo {
       latestVersion: latestVersion,
       releaseNotes: releaseNotes,
       apkStoragePath: apkStoragePath,
+      apkUrl: apkUrl,
       forceUpdate: forceUpdate,
       minimumVersion: minimumVersion,
     );

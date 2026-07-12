@@ -24,6 +24,7 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
     'No Return',
     'At Maintenance',
     'Lost',
+    'Not Available',
     'Hand Over',
     'Damaged',
     'Replaced',
@@ -64,9 +65,8 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                       Expanded(
                         child: Text(
                           _currentRecord.keyName,
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                fontWeight: FontWeight.w800,
-                              ),
+                          style: Theme.of(context).textTheme.headlineSmall
+                              ?.copyWith(fontWeight: FontWeight.w800),
                         ),
                       ),
                       _StatusTag(status: _currentRecord.status),
@@ -75,57 +75,136 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                   const SizedBox(height: 6),
                   Text(
                     _currentRecord.zone,
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(color: Colors.black54),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.titleMedium?.copyWith(color: Colors.black54),
                   ),
                   const SizedBox(height: 18),
-                  _ReadOnlyField(label: 'Key Name', value: _currentRecord.keyName),
-                  _ReadOnlyField(label: 'Category', value: _currentRecord.category),
-                  _ReadOnlyField(label: 'Location', value: _readMetadata('location')),
+                  _ReadOnlyField(
+                    label: 'Key Name',
+                    value: _currentRecord.keyName,
+                  ),
+                  _ReadOnlyField(
+                    label: 'Category',
+                    value: _currentRecord.category,
+                  ),
+                  _ReadOnlyField(
+                    label: 'Location',
+                    value: _readMetadata('location'),
+                  ),
                   _ReadOnlyField(label: 'Level', value: _readMetadata('level')),
-                  if (_currentRecord.category == 'Zone' || _currentRecord.category == 'Others')
-                    _ReadOnlyField(label: 'Zone', value: _readMetadata('zone', fallback: _currentRecord.zone)),
+                  if (_currentRecord.category == 'Zone' ||
+                      _currentRecord.category == 'Others')
+                    _ReadOnlyField(
+                      label: 'Zone',
+                      value: _readMetadata(
+                        'zone',
+                        fallback: _currentRecord.zone,
+                      ),
+                    ),
                   if (_currentRecord.category == 'Master Key')
-                    _ReadOnlyField(label: 'Master Key', value: _readMetadata('masterKey', fallback: _currentRecord.keyName)),
+                    _ReadOnlyField(
+                      label: 'Master Key',
+                      value: _readMetadata(
+                        'masterKey',
+                        fallback: _currentRecord.keyName,
+                      ),
+                    ),
                   if (_currentRecord.category == 'Lot')
-                    _ReadOnlyField(label: 'No. Lot Key', value: _readMetadata('lotKey', fallback: _currentRecord.keyName)),
+                    _ReadOnlyField(
+                      label: 'No. Lot Key',
+                      value: _readMetadata(
+                        'lotKey',
+                        fallback: _currentRecord.keyName,
+                      ),
+                    ),
                   if (_currentRecord.category == 'Roller Shutter') ...[
-                    _ReadOnlyField(label: 'Level / No.', value: _readMetadata('rollerLevelNo')),
+                    _ReadOnlyField(
+                      label: 'Level / No.',
+                      value: _readMetadata('rollerLevelNo'),
+                    ),
                     _ReadOnlyField(label: 'FRS', value: _readMetadata('frs')),
-                    _ReadOnlyField(label: 'No. Roller Shutter', value: _readMetadata('rollerNumber')),
+                    _ReadOnlyField(
+                      label: 'No. Roller Shutter',
+                      value: _readMetadata('rollerNumber'),
+                    ),
                   ],
                   _ReadOnlyField(label: 'Qty', value: _readMetadata('qty')),
                   if (_currentRecord.category != 'Roller Shutter')
-                    _ReadOnlyField(label: 'Door ID', value: _readMetadata('doorId')),
+                    _ReadOnlyField(
+                      label: 'Door ID',
+                      value: _readMetadata('doorId'),
+                    ),
                   _ReadOnlyField(label: 'Status', value: _currentRecord.status),
-                  if (_currentRecord.status != 'Available' && _readMetadata('staffName').isNotEmpty)
-                    _ReadOnlyField(label: 'Name Staff', value: _readMetadata('staffName')),
-                  if (_currentRecord.status != 'Available' && _readMetadata('department').isNotEmpty)
-                    _ReadOnlyField(label: 'Department', value: _readMetadata('department')),
-                  if (_currentRecord.status != 'Available' && _readMetadata('tenantName').isNotEmpty)
-                    _ReadOnlyField(label: 'Tenant\'s Name', value: _readMetadata('tenantName')),
-                  if (_currentRecord.status != 'Available' && _readMetadata('purpose').isNotEmpty)
-                    _ReadOnlyField(label: 'Purpose', value: _readMetadata('purpose')),
-                  if (_currentRecord.status == 'Hand Over' && _readMetadata('documentReportNo').isNotEmpty)
-                    _ReadOnlyField(label: 'Document report no.', value: _readMetadata('documentReportNo')),
-                  if (_currentRecord.status == 'Hand Over' && _readMetadata('handoverBy').isNotEmpty)
-                    _ReadOnlyField(label: 'Handover by', value: _readMetadata('handoverBy')),
-                  if (_currentRecord.status == 'Hand Over' && _readMetadata('receivedBy').isNotEmpty)
-                    _ReadOnlyField(label: 'Received by', value: _readMetadata('receivedBy')),
-                  if (_currentRecord.status == 'Hand Over' && _readMetadata('witnessesBy').isNotEmpty)
-                    _ReadOnlyField(label: 'Witnesses by', value: _readMetadata('witnessesBy')),
-                  if (_currentRecord.status == 'Hand Over' && _readMetadata('handoverDate').isNotEmpty)
-                    _ReadOnlyField(label: 'Handover date', value: _readMetadata('handoverDate')),
-                  if (_currentRecord.status == 'Hand Over' && _readMetadata('handoverTime').isNotEmpty)
-                    _ReadOnlyField(label: 'Handover time', value: _readMetadata('handoverTime')),
+                  if (_currentRecord.status != 'Available' &&
+                      _readMetadata('staffName').isNotEmpty)
+                    _ReadOnlyField(
+                      label: 'Name Staff',
+                      value: _readMetadata('staffName'),
+                    ),
+                  if (_currentRecord.status != 'Available' &&
+                      _readMetadata('department').isNotEmpty)
+                    _ReadOnlyField(
+                      label: 'Department',
+                      value: _readMetadata('department'),
+                    ),
+                  if (_currentRecord.status != 'Available' &&
+                      _readMetadata('tenantName').isNotEmpty)
+                    _ReadOnlyField(
+                      label: 'Tenant\'s Name',
+                      value: _readMetadata('tenantName'),
+                    ),
+                  if (_currentRecord.status != 'Available' &&
+                      _readMetadata('purpose').isNotEmpty)
+                    _ReadOnlyField(
+                      label: 'Purpose',
+                      value: _readMetadata('purpose'),
+                    ),
+                  if (_currentRecord.status == 'Hand Over' &&
+                      _readMetadata('documentReportNo').isNotEmpty)
+                    _ReadOnlyField(
+                      label: 'Document report no.',
+                      value: _readMetadata('documentReportNo'),
+                    ),
+                  if (_currentRecord.status == 'Hand Over' &&
+                      _readMetadata('handoverBy').isNotEmpty)
+                    _ReadOnlyField(
+                      label: 'Handover by',
+                      value: _readMetadata('handoverBy'),
+                    ),
+                  if (_currentRecord.status == 'Hand Over' &&
+                      _readMetadata('receivedBy').isNotEmpty)
+                    _ReadOnlyField(
+                      label: 'Received by',
+                      value: _readMetadata('receivedBy'),
+                    ),
+                  if (_currentRecord.status == 'Hand Over' &&
+                      _readMetadata('witnessesBy').isNotEmpty)
+                    _ReadOnlyField(
+                      label: 'Witnesses by',
+                      value: _readMetadata('witnessesBy'),
+                    ),
+                  if (_currentRecord.status == 'Hand Over' &&
+                      _readMetadata('handoverDate').isNotEmpty)
+                    _ReadOnlyField(
+                      label: 'Handover date',
+                      value: _readMetadata('handoverDate'),
+                    ),
+                  if (_currentRecord.status == 'Hand Over' &&
+                      _readMetadata('handoverTime').isNotEmpty)
+                    _ReadOnlyField(
+                      label: 'Handover time',
+                      value: _readMetadata('handoverTime'),
+                    ),
                   if (_readMetadata('date').isNotEmpty)
                     _ReadOnlyField(label: 'Date', value: _readMetadata('date')),
                   if (_readMetadata('time').isNotEmpty)
                     _ReadOnlyField(label: 'Time', value: _readMetadata('time')),
                   if (_readMetadata('remarks').isNotEmpty)
-                    _ReadOnlyField(label: 'Remarks', value: _readMetadata('remarks')),
+                    _ReadOnlyField(
+                      label: 'Remarks',
+                      value: _readMetadata('remarks'),
+                    ),
                   const SizedBox(height: 18),
                   Wrap(
                     spacing: 10,
@@ -146,7 +225,9 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                         ),
                       ),
                       FilledButton.icon(
-                        onPressed: _canReturn ? () async => _handleAction(context, 'Returned') : null,
+                        onPressed: _canReturn
+                            ? () async => _handleAction(context, 'Returned')
+                            : null,
                         icon: const Icon(Icons.assignment_turned_in_outlined),
                         label: const Text('Returned'),
                         style: FilledButton.styleFrom(
@@ -162,7 +243,9 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                           onPressed: () {
                             Navigator.of(context).push(
                               MaterialPageRoute<void>(
-                                builder: (_) => RegisterScreen(initialKeyId: _currentRecord.keyId),
+                                builder: (_) => RegisterScreen(
+                                  initialKeyId: _currentRecord.keyId,
+                                ),
                               ),
                             );
                           },
@@ -185,13 +268,28 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                           await _handleAction(context, value);
                         },
                         itemBuilder: (context) => [
-                          const PopupMenuItem(value: 'Lost', child: Text('Lost')),
-                          const PopupMenuItem(value: 'Replaced', child: Text('Replaced')),
+                          const PopupMenuItem(
+                            value: 'Lost',
+                            child: Text('Lost'),
+                          ),
+                          const PopupMenuItem(
+                            value: 'Replaced',
+                            child: Text('Replaced'),
+                          ),
                           if (_currentRecord.status == 'In Use')
-                            const PopupMenuItem(value: 'Hand Over', child: Text('Hand Over')),
+                            const PopupMenuItem(
+                              value: 'Hand Over',
+                              child: Text('Hand Over'),
+                            ),
                           if (_currentRecord.status == 'Hand Over')
-                            const PopupMenuItem(value: 'Receive Key', child: Text('Receive Key')),
-                          const PopupMenuItem(value: 'Damaged', child: Text('Damaged')),
+                            const PopupMenuItem(
+                              value: 'Receive Key',
+                              child: Text('Receive Key'),
+                            ),
+                          const PopupMenuItem(
+                            value: 'Damaged',
+                            child: Text('Damaged'),
+                          ),
                           const PopupMenuItem(
                             value: 'Delete Key',
                             child: Text(
@@ -200,7 +298,10 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                             ),
                           ),
                           if (_currentRecord.status == 'Lost')
-                            const PopupMenuItem(value: 'Found', child: Text('Key found')),
+                            const PopupMenuItem(
+                              value: 'Found',
+                              child: Text('Key found'),
+                            ),
                         ],
                         child: OutlinedButton.icon(
                           onPressed: null,
@@ -221,7 +322,8 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
 
   bool get _canAddKey => _currentRecord.status == 'Available';
 
-  bool get _canReturn => _currentRecord.status == 'In Use' || _currentRecord.status == 'Hand Over';
+  bool get _canReturn =>
+      _currentRecord.status == 'In Use' || _currentRecord.status == 'Hand Over';
 
   Future<void> _handleAction(BuildContext context, String action) async {
     if (action == 'Returned') {
@@ -236,7 +338,9 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
       if (_currentRecord.status != 'In Use') {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Hand Over is only available for In Use keys.')),
+            const SnackBar(
+              content: Text('Hand Over is only available for In Use keys.'),
+            ),
           );
         }
         return;
@@ -249,7 +353,11 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
       if (_currentRecord.status != 'Hand Over') {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Receive Key is only available for Hand Over keys.')),
+            const SnackBar(
+              content: Text(
+                'Receive Key is only available for Hand Over keys.',
+              ),
+            ),
           );
         }
         return;
@@ -262,9 +370,9 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
       await KeyRecordRepository.markDamaged(_currentRecord);
     }
 
-    final latest = KeyRecordRepository.searchKeys(_currentRecord.keyId)
-        .where((item) => item.keyId == _currentRecord.keyId)
-        .toList();
+    final latest = KeyRecordRepository.searchKeys(
+      _currentRecord.keyId,
+    ).where((item) => item.keyId == _currentRecord.keyId).toList();
     if (latest.isNotEmpty && mounted) {
       setState(() => _currentRecord = latest.first);
     }
@@ -277,9 +385,7 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
             label: 'Event Log',
             onPressed: () {
               Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const EventLogScreen(),
-                ),
+                MaterialPageRoute<void>(builder: (_) => const EventLogScreen()),
               );
             },
           ),
@@ -292,15 +398,22 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
     final formKey = GlobalKey<FormState>();
     final documentReportNoController = TextEditingController();
     final handoverByController = TextEditingController(
-      text: AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin',
+      text: AuthService.activeUser.isNotEmpty
+          ? AuthService.activeUser
+          : 'Security Admin',
     );
-    final handoverDateController = TextEditingController(text: _formatDate(DateTime.now()));
-    final handoverTimeController = TextEditingController(text: _formatTime(DateTime.now()));
+    final handoverDateController = TextEditingController(
+      text: _formatDate(DateTime.now()),
+    );
+    final handoverTimeController = TextEditingController(
+      text: _formatTime(DateTime.now()),
+    );
     final receivedByController = TextEditingController();
     final witnessesByController = TextEditingController();
 
     try {
-      final saved = await showDialog<bool>(
+      final saved =
+          await showDialog<bool>(
             context: context,
             builder: (dialogContext) {
               return AlertDialog(
@@ -373,12 +486,15 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                         return;
                       }
 
-                      final actor = AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin';
+                      final actor = AuthService.activeUser.isNotEmpty
+                          ? AuthService.activeUser
+                          : 'Security Admin';
                       await KeyRecordRepository.markHandOverWithDetails(
                         _currentRecord,
                         actor: actor,
                         metadata: {
-                          'documentReportNo': documentReportNoController.text.trim(),
+                          'documentReportNo': documentReportNoController.text
+                              .trim(),
                           'handoverBy': handoverByController.text.trim(),
                           'handoverDate': handoverDateController.text.trim(),
                           'handoverTime': handoverTimeController.text.trim(),
@@ -402,9 +518,9 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
         return false;
       }
 
-      final latest = KeyRecordRepository.searchKeys(_currentRecord.keyId)
-          .where((item) => item.keyId == _currentRecord.keyId)
-          .toList();
+      final latest = KeyRecordRepository.searchKeys(
+        _currentRecord.keyId,
+      ).where((item) => item.keyId == _currentRecord.keyId).toList();
       if (latest.isNotEmpty) {
         setState(() => _currentRecord = latest.first);
       }
@@ -423,16 +539,21 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
   Future<bool> _openReceiveKeyDialog(BuildContext context) async {
     final formKey = GlobalKey<FormState>();
     final receivedFromController = TextEditingController(
-      text: _readMetadata('staffName').isNotEmpty ? _readMetadata('staffName') : _currentRecord.borrowerName,
+      text: _readMetadata('staffName').isNotEmpty
+          ? _readMetadata('staffName')
+          : _currentRecord.borrowerName,
     );
     final receivedByController = TextEditingController(
-      text: AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin',
+      text: AuthService.activeUser.isNotEmpty
+          ? AuthService.activeUser
+          : 'Security Admin',
     );
     final witnessByController = TextEditingController();
     final documentNoController = TextEditingController();
 
     try {
-      final saved = await showDialog<bool>(
+      final saved =
+          await showDialog<bool>(
             context: context,
             builder: (dialogContext) {
               return AlertDialog(
@@ -478,7 +599,9 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                         return;
                       }
 
-                      final actor = AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin';
+                      final actor = AuthService.activeUser.isNotEmpty
+                          ? AuthService.activeUser
+                          : 'Security Admin';
                       await KeyRecordRepository.receiveKeyWithDetails(
                         _currentRecord,
                         actor: actor,
@@ -506,9 +629,9 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
         return false;
       }
 
-      final latest = KeyRecordRepository.searchKeys(_currentRecord.keyId)
-          .where((item) => item.keyId == _currentRecord.keyId)
-          .toList();
+      final latest = KeyRecordRepository.searchKeys(
+        _currentRecord.keyId,
+      ).where((item) => item.keyId == _currentRecord.keyId).toList();
       if (latest.isNotEmpty) {
         setState(() => _currentRecord = latest.first);
       }
@@ -526,7 +649,8 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
 
-    final shouldDelete = await showDialog<bool>(
+    final shouldDelete =
+        await showDialog<bool>(
           context: context,
           builder: (dialogContext) {
             return AlertDialog(
@@ -557,7 +681,9 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
       return;
     }
 
-    final actor = AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin';
+    final actor = AuthService.activeUser.isNotEmpty
+        ? AuthService.activeUser
+        : 'Security Admin';
 
     await KeyRecordRepository.deleteKey(_currentRecord, recordedBy: actor);
 
@@ -583,21 +709,39 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
     final formKey = GlobalKey<FormState>();
 
     final category = _currentRecord.category;
-    final keyNameController = TextEditingController(text: _currentRecord.keyName);
-    final locationController = TextEditingController(text: _readMetadata('location'));
+    final keyNameController = TextEditingController(
+      text: _currentRecord.keyName,
+    );
+    final locationController = TextEditingController(
+      text: _readMetadata('location'),
+    );
     final levelController = TextEditingController(text: _readMetadata('level'));
-    final zoneController = TextEditingController(text: _readMetadata('zone', fallback: _currentRecord.zone));
-    final masterKeyController = TextEditingController(text: _readMetadata('masterKey', fallback: _currentRecord.keyName));
-    final lotKeyController = TextEditingController(text: _readMetadata('lotKey', fallback: _currentRecord.keyName));
-    final rollerLevelNoController = TextEditingController(text: _readMetadata('rollerLevelNo'));
+    final zoneController = TextEditingController(
+      text: _readMetadata('zone', fallback: _currentRecord.zone),
+    );
+    final masterKeyController = TextEditingController(
+      text: _readMetadata('masterKey', fallback: _currentRecord.keyName),
+    );
+    final lotKeyController = TextEditingController(
+      text: _readMetadata('lotKey', fallback: _currentRecord.keyName),
+    );
+    final rollerLevelNoController = TextEditingController(
+      text: _readMetadata('rollerLevelNo'),
+    );
     final frsController = TextEditingController(text: _readMetadata('frs'));
-    final rollerNumberController = TextEditingController(text: _readMetadata('rollerNumber'));
+    final rollerNumberController = TextEditingController(
+      text: _readMetadata('rollerNumber'),
+    );
     final qtyController = TextEditingController(text: _readMetadata('qty'));
-    final doorIdController = TextEditingController(text: _readMetadata('doorId'));
+    final doorIdController = TextEditingController(
+      text: _readMetadata('doorId'),
+    );
     var selectedStatus = _statusOptions.contains(_currentRecord.status)
-      ? _currentRecord.status
-      : 'Available';
-    final remarksController = TextEditingController(text: _readMetadata('remarks'));
+        ? _currentRecord.status
+        : 'Available';
+    final remarksController = TextEditingController(
+      text: _readMetadata('remarks'),
+    );
 
     Future<void> save() async {
       if (!(formKey.currentState?.validate() ?? false)) {
@@ -622,8 +766,12 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
           'remarks': remarksController.text.trim(),
         });
 
-      final effectiveZone = zoneController.text.trim().isEmpty ? _currentRecord.zone : zoneController.text.trim();
-      final actor = AuthService.activeUser.isEmpty ? 'Security Admin' : AuthService.activeUser;
+      final effectiveZone = zoneController.text.trim().isEmpty
+          ? _currentRecord.zone
+          : zoneController.text.trim();
+      final actor = AuthService.activeUser.isEmpty
+          ? 'Security Admin'
+          : AuthService.activeUser;
 
       try {
         await KeyRecordRepository.updateRegisteredKeyDetails(
@@ -642,9 +790,9 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
 
         navigator.pop();
 
-        final latest = KeyRecordRepository.searchKeys(_currentRecord.keyId)
-            .where((item) => item.keyId == _currentRecord.keyId)
-            .toList();
+        final latest = KeyRecordRepository.searchKeys(
+          _currentRecord.keyId,
+        ).where((item) => item.keyId == _currentRecord.keyId).toList();
         if (latest.isNotEmpty) {
           setState(() => _currentRecord = latest.first);
         }
@@ -656,9 +804,7 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
         if (!mounted) {
           return;
         }
-        messenger.showSnackBar(
-          SnackBar(content: Text('Save failed: $error')),
-        );
+        messenger.showSnackBar(SnackBar(content: Text('Save failed: $error')));
       }
     }
 
@@ -677,23 +823,60 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        _EditableField(controller: keyNameController, label: 'Key Name', requiredField: true),
-                        _EditableField(controller: locationController, label: 'Location'),
-                        _EditableField(controller: levelController, label: 'Level'),
+                        _EditableField(
+                          controller: keyNameController,
+                          label: 'Key Name',
+                          requiredField: true,
+                        ),
+                        _EditableField(
+                          controller: locationController,
+                          label: 'Location',
+                        ),
+                        _EditableField(
+                          controller: levelController,
+                          label: 'Level',
+                        ),
                         if (category == 'Zone' || category == 'Others')
-                          _EditableField(controller: zoneController, label: 'Zone', requiredField: true),
+                          _EditableField(
+                            controller: zoneController,
+                            label: 'Zone',
+                            requiredField: true,
+                          ),
                         if (category == 'Master Key')
-                          _EditableField(controller: masterKeyController, label: 'Master Key', requiredField: true),
+                          _EditableField(
+                            controller: masterKeyController,
+                            label: 'Master Key',
+                            requiredField: true,
+                          ),
                         if (category == 'Lot')
-                          _EditableField(controller: lotKeyController, label: 'No. Lot Key', requiredField: true),
+                          _EditableField(
+                            controller: lotKeyController,
+                            label: 'No. Lot Key',
+                            requiredField: true,
+                          ),
                         if (category == 'Roller Shutter') ...[
-                          _EditableField(controller: rollerLevelNoController, label: 'Level / No.', requiredField: true),
-                          _EditableField(controller: frsController, label: 'FRS', requiredField: true),
-                          _EditableField(controller: rollerNumberController, label: 'No. Roller Shutter', requiredField: true),
+                          _EditableField(
+                            controller: rollerLevelNoController,
+                            label: 'Level / No.',
+                            requiredField: true,
+                          ),
+                          _EditableField(
+                            controller: frsController,
+                            label: 'FRS',
+                            requiredField: true,
+                          ),
+                          _EditableField(
+                            controller: rollerNumberController,
+                            label: 'No. Roller Shutter',
+                            requiredField: true,
+                          ),
                         ],
                         _EditableField(controller: qtyController, label: 'Qty'),
                         if (category != 'Roller Shutter')
-                          _EditableField(controller: doorIdController, label: 'Door ID'),
+                          _EditableField(
+                            controller: doorIdController,
+                            label: 'Door ID',
+                          ),
                         Padding(
                           padding: const EdgeInsets.only(bottom: 12),
                           child: DropdownButtonFormField<String>(
@@ -707,7 +890,12 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                               ),
                             ),
                             items: _statusOptions
-                                .map((status) => DropdownMenuItem(value: status, child: Text(status)))
+                                .map(
+                                  (status) => DropdownMenuItem(
+                                    value: status,
+                                    child: Text(status),
+                                  ),
+                                )
                                 .toList(growable: false),
                             onChanged: (value) {
                               if (value == null) {
@@ -723,7 +911,11 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                             },
                           ),
                         ),
-                        _EditableField(controller: remarksController, label: 'Remarks', maxLines: 3),
+                        _EditableField(
+                          controller: remarksController,
+                          label: 'Remarks',
+                          maxLines: 3,
+                        ),
                       ],
                     ),
                   ),
@@ -736,10 +928,7 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
               onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text('Cancel'),
             ),
-            FilledButton(
-              onPressed: save,
-              child: const Text('Save'),
-            ),
+            FilledButton(onPressed: save, child: const Text('Save')),
           ],
         );
       },
@@ -785,9 +974,7 @@ class _ReadOnlyField extends StatelessWidget {
           labelText: label,
           filled: true,
           fillColor: const Color(0xFFF9FBFC),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
         ),
       ),
     );
@@ -825,7 +1012,8 @@ class _EditableField extends StatelessWidget {
         readOnly: readOnly,
         keyboardType: keyboardType,
         inputFormatters: inputFormatters,
-        validator: validator ??
+        validator:
+            validator ??
             (requiredField
                 ? (value) {
                     if (value == null || value.trim().isEmpty) {
@@ -838,9 +1026,7 @@ class _EditableField extends StatelessWidget {
           labelText: label,
           filled: true,
           fillColor: const Color(0xFFF9FBFC),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
         ),
       ),
     );
@@ -857,21 +1043,21 @@ class _StatusTag extends StatelessWidget {
     final bgColor = status == 'In Use'
         ? const Color(0xFFE8F3F1)
         : status == 'Available'
-            ? const Color(0xFFE7F5EA)
-            : status == 'Hand Over'
-                ? const Color(0xFFE9EEF6)
-                : status == 'Damaged' || status == 'Replaced'
-                    ? const Color(0xFFFFF3E0)
-                    : const Color(0xFFFFE5E5);
+        ? const Color(0xFFE7F5EA)
+        : status == 'Hand Over'
+        ? const Color(0xFFE9EEF6)
+        : status == 'Damaged' || status == 'Replaced'
+        ? const Color(0xFFFFF3E0)
+        : const Color(0xFFFFE5E5);
     final textColor = status == 'In Use'
         ? const Color(0xFF00695C)
         : status == 'Available'
-            ? const Color(0xFF2E7D32)
-            : status == 'Hand Over'
-                ? const Color(0xFF1E3A5F)
-                : status == 'Damaged' || status == 'Replaced'
-                    ? const Color(0xFFEF6C00)
-                    : const Color(0xFFC62828);
+        ? const Color(0xFF2E7D32)
+        : status == 'Hand Over'
+        ? const Color(0xFF1E3A5F)
+        : status == 'Damaged' || status == 'Replaced'
+        ? const Color(0xFFEF6C00)
+        : const Color(0xFFC62828);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -886,4 +1072,3 @@ class _StatusTag extends StatelessWidget {
     );
   }
 }
-

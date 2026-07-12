@@ -4,6 +4,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'notification_service.dart';
+
 class AuthService {
   AuthService._();
 
@@ -39,6 +41,11 @@ class AuthService {
         await _prefs?.setString('activeUser', _activeUser);
         if (_activeUser.trim().isNotEmpty) {
           await _prefs?.setString('storedUsername', _activeUser);
+        }
+        try {
+          await NotificationService.subscribeToSecurityTopic();
+        } catch (error) {
+          debugPrint('Failed to subscribe to security_all topic: $error');
         }
         return;
       }
@@ -138,6 +145,13 @@ class AuthService {
           await _prefs?.setString('storedEmail', normalizedEmail);
           if (_activeUser.isNotEmpty) {
             await _prefs?.setString('storedUsername', _activeUser);
+          }
+          if (_authenticated) {
+            try {
+              await NotificationService.subscribeToSecurityTopic();
+            } catch (error) {
+              debugPrint('Failed to subscribe to security_all topic: $error');
+            }
           }
           return true;
         } on FirebaseAuthException catch (error) {
@@ -248,6 +262,14 @@ class AuthService {
     await _prefs?.setString('storedPassword', password);
     await _prefs?.setBool('authenticated', true);
     await _prefs?.setString('activeUser', _activeUser.trim());
+
+    if (_authenticated) {
+      try {
+        await NotificationService.subscribeToSecurityTopic();
+      } catch (error) {
+        debugPrint('Failed to subscribe to security_all topic: $error');
+      }
+    }
   }
 
   static Future<Map<String, dynamic>?> getUserProfileByEmail(String email) async {
@@ -299,6 +321,11 @@ class AuthService {
     _activeUser = '';
     if (_firebaseAvailable) {
       await _auth.signOut();
+    }
+    try {
+      await NotificationService.unsubscribeFromSecurityTopic();
+    } catch (error) {
+      debugPrint('Failed to unsubscribe from security_all topic: $error');
     }
     await clearStoredCredentials();
     await _prefs?.remove('authenticated');

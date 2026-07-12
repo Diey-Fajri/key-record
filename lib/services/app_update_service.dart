@@ -67,7 +67,7 @@ class AppUpdateService {
   DocumentReference<Map<String, dynamic>> get _currentUpdateDoc =>
       _firestore.collection('app_updates').doc('current');
 
-  /// Verifies required update metadata and checks that APK path resolves in Storage.
+  /// Verifies required update metadata and checks that APK source resolves.
   Future<UpdateConfigValidationResult> validateCurrentUpdateConfig() async {
     final missingFields = <String>[];
     final errors = <String>[];
@@ -96,20 +96,33 @@ class AppUpdateService {
     final latestVersion = (data['latestVersion'] ?? '').toString().trim();
     final apkStoragePath =
         (data['apkStoragePath'] ?? data['storagePath'] ?? '').toString().trim();
+    final apkUrl = (data['apkUrl'] ?? data['downloadUrl'] ?? '').toString().trim();
 
     if (latestVersion.isEmpty) {
       missingFields.add('latestVersion');
     }
-    if (apkStoragePath.isEmpty) {
-      missingFields.add('apkStoragePath');
+    if (apkStoragePath.isEmpty && apkUrl.isEmpty) {
+      missingFields.add('apkStoragePath or apkUrl');
     }
 
-    if (apkStoragePath.isNotEmpty) {
-      try {
-        await _resolveStorageReference(apkStoragePath).getDownloadURL();
+    if (apkUrl.isNotEmpty) {
+      if (!_looksLikeHttpUrl(apkUrl)) {
+        errors.add('apkUrl must be a valid HTTP/HTTPS URL.');
+      } else {
         apkUrlResolved = true;
-      } catch (error) {
-        errors.add('Unable to resolve APK in Storage: $error');
+      }
+    }
+
+    if (!apkUrlResolved && apkStoragePath.isNotEmpty) {
+      if (_looksLikeHttpUrl(apkStoragePath)) {
+        apkUrlResolved = true;
+      } else {
+        try {
+          await _resolveStorageReference(apkStoragePath).getDownloadURL();
+          apkUrlResolved = true;
+        } catch (error) {
+          errors.add('Unable to resolve APK in Storage: $error');
+        }
       }
     }
 
@@ -137,8 +150,8 @@ class AppUpdateService {
     if (update.latestVersion.isEmpty) {
       throw const AppUpdateException('Field latestVersion is required in app_updates/current.');
     }
-    if (update.apkStoragePath.isEmpty) {
-      throw const AppUpdateException('Field apkStoragePath is required in app_updates/current.');
+    if (update.apkStoragePath.isEmpty && update.apkUrl.isEmpty) {
+      throw const AppUpdateException('Field apkStoragePath or apkUrl is required in app_updates/current.');
     }
 
     final latestVersion = _normalizeVersion(update.latestVersion);
@@ -160,14 +173,13 @@ class AppUpdateService {
     );
   }
 
-  /// Downloads the APK from Firebase Storage and launches Android installer.
+  /// Downloads the APK and launches Android installer.
   Future<void> downloadAndInstallApk(
     AppUpdateInfo update, {
     void Function(int received, int total)? onReceiveProgress,
   }) async {
-    final storageRef = _resolveStorageReference(update.apkStoragePath);
-    final downloadUrl = await storageRef.getDownloadURL();
-    final fileName = storageRef.name.isEmpty ? 'app-release.apk' : storageRef.name;
+    final downloadUrl = await _resolveDownloadUrl(update);
+    final fileName = _extractFileName(downloadUrl) ?? 'app-release.apk';
 
     final tempDir = await getTemporaryDirectory();
     final filePath = '${tempDir.path}/$fileName';
@@ -184,8 +196,8 @@ class AppUpdateService {
           sendTimeout: const Duration(minutes: 1),
         ),
       );
-    } catch (_) {
-      throw const AppUpdateException('Failed to download APK from Firebase Storage.');
+    } catch (error) {
+      throw AppUpdateException('Failed to download APK: $error');
     }
 
     if (!Platform.isAndroid) {
@@ -200,10 +212,40 @@ class AppUpdateService {
 
   Reference _resolveStorageReference(String rawPath) {
     final path = rawPath.trim();
-    if (path.startsWith('gs://') || path.startsWith('https://')) {
+    if (path.startsWith('gs://') || path.contains('firebasestorage.googleapis.com')) {
       return _storage.refFromURL(path);
     }
     return _storage.ref(path);
+  }
+
+  Future<String> _resolveDownloadUrl(AppUpdateInfo update) async {
+    if (update.apkUrl.isNotEmpty) {
+      return update.apkUrl.trim();
+    }
+
+    final rawPath = update.apkStoragePath.trim();
+    if (_looksLikeHttpUrl(rawPath)) {
+      return rawPath;
+    }
+
+    return await _resolveStorageReference(rawPath).getDownloadURL();
+  }
+
+  String? _extractFileName(String url) {
+    try {
+      final uri = Uri.parse(url);
+      if (uri.pathSegments.isNotEmpty) {
+        return uri.pathSegments.last;
+      }
+    } catch (_) {
+      // ignore invalid URIs
+    }
+    return null;
+  }
+
+  bool _looksLikeHttpUrl(String rawPath) {
+    final path = rawPath.trim().toLowerCase();
+    return path.startsWith('http://') || path.startsWith('https://');
   }
 
   String _normalizeVersion(String version) {

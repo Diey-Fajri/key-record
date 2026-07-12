@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 
 import 'app.dart';
 import 'firebase_options.dart';
+import 'services/app_notification_service.dart';
 import 'services/auth_service.dart';
+import 'services/notification_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -17,11 +19,9 @@ Future<void> main() async {
     debugPrintStack(stackTrace: stackTrace);
   }
 
-  // Clear all stored credentials to require fresh login
-  await AuthService.clearStoredCredentials();
-  await AuthService.logout();
-
+  await NotificationService.initialize(navigatorKey: appNavigatorKey);
   await AuthService.initialize();
 
   runApp(const MyApp());
+  await NotificationService.handleInitialMessage();
 }

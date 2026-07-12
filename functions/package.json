@@ -1,0 +1,16 @@
+{
+  "name": "keyrecordpbscb-functions",
+  "description": "Firebase Cloud Functions for Key Record app",
+  "private": true,
+  "engines": {
+    "node": "18"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "deploy": "firebase deploy --only functions"
+  },
+  "dependencies": {
+    "firebase-admin": "^11.11.0",
+    "firebase-functions": "^4.5.0"
+  }
+}
