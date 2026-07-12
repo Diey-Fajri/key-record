@@ -29,10 +29,20 @@ class AppNotificationService {
 
   static AppNotificationCallback? onNotificationReceived;
 
+  static final Set<String> _seenNotificationIds = <String>{};
+
   static StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _subscription;
   static bool _initialized = false;
   static bool _readyToShow = false;
   static bool _dialogVisible = false;
+
+  static bool hasSeenNotification(String notificationId) {
+    return _seenNotificationIds.contains(notificationId);
+  }
+
+  static void markNotificationAsSeen(String notificationId) {
+    _seenNotificationIds.add(notificationId);
+  }
 
   static Future<void> start() async {
     if (_initialized) {
@@ -84,10 +94,21 @@ class AppNotificationService {
         continue;
       }
 
+      final doc = change.doc;
+      if (doc.metadata.hasPendingWrites) {
+        continue;
+      }
+
       try {
-        final doc = change.doc;
         final data = doc.data();
         if (data == null) {
+          continue;
+        }
+
+        final recordedBy = data['recordedBy']?.toString().trim() ?? '';
+        if (recordedBy.isNotEmpty &&
+            AuthService.activeUser.isNotEmpty &&
+            recordedBy == AuthService.activeUser) {
           continue;
         }
 
@@ -124,6 +145,7 @@ class AppNotificationService {
           body: message.body,
           docId: doc.id,
         );
+        markNotificationAsSeen(doc.id);
       } catch (error) {
         debugPrint('Notification parse error: $error');
       }

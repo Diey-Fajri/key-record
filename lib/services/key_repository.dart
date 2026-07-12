@@ -455,11 +455,26 @@ class KeyRecordRepository {
     // Write deterministic doc first so updates are not blocked by full-collection scans.
     await targetRef.set(key.toFirestore(), SetOptions(merge: true));
 
-    // Keep any legacy/random-ID docs in sync only for this same logical key.
+    // Update any existing docs for the same logical key.
+    if (key.keyId.trim().isNotEmpty) {
+      final keyIdSnapshot = await _keysCollection
+          .where('keyId', isEqualTo: key.keyId.trim())
+          .get();
+      for (final doc in keyIdSnapshot.docs) {
+        if (doc.id == targetDocId) {
+          continue;
+        }
+        await doc.reference.set(key.toFirestore(), SetOptions(merge: true));
+      }
+    }
+
     final snapshot = await _keysCollection.get();
     for (final doc in snapshot.docs) {
+      if (doc.id == targetDocId) {
+        continue;
+      }
       final existing = KeyRecord.fromFirestore(doc);
-      if (!_sameLogicalKey(existing, key) || doc.id == targetDocId) {
+      if (!_sameLogicalKey(existing, key)) {
         continue;
       }
       await doc.reference.set(key.toFirestore(), SetOptions(merge: true));
@@ -503,11 +518,17 @@ class KeyRecordRepository {
   }
 
   static String _dedupeIdentity(KeyRecord key) {
+    final logicalIdentity = _logicalKeyIdentity(key);
+    if (logicalIdentity.isNotEmpty) {
+      return logicalIdentity;
+    }
+
     final docId = key.docId?.trim() ?? '';
     if (docId.isNotEmpty) {
       return 'DOC:$docId';
     }
-    return _logicalKeyIdentity(key);
+
+    return _keyDocId(key.keyId);
   }
 
   static String _identityMetadataSignature(KeyRecord key) {
@@ -789,9 +810,10 @@ class KeyRecordRepository {
     String audience = 'allMembers',
     String type = 'activity',
     String? title,
+    Map<String, dynamic>? extraData,
   }) async {
     if (!_firestoreAvailable) return;
-    await _notificationsCollection.add({
+    final payload = <String, dynamic>{
       'title': title ?? action,
       'body': body,
       'type': type,
@@ -802,7 +824,11 @@ class KeyRecordRepository {
       'createdAt': FieldValue.serverTimestamp(),
       'fcmSent': false,
       'readBy': <String>[],
-    });
+    };
+    if (extraData != null) {
+      payload.addAll(extraData);
+    }
+    await _notificationsCollection.add(payload);
   }
 
   static Stream<List<KeyRecord>> watchAllKeys() {
@@ -1098,16 +1124,26 @@ class KeyRecordRepository {
     if (keyName == normalizedQuery) score += 100;
     if (zone == normalizedQuery || metadataZone == normalizedQuery) score += 90;
     if (level == normalizedQuery) score += 70;
-    if (keyId.startsWith(normalizedQuery)) score += 60;
-    if (keyName.startsWith(normalizedQuery)) score += 50;
+    if (keyId.startsWith(normalizedQuery)) {
+      score += 60;
+    }
+    if (keyName.startsWith(normalizedQuery)) {
+      score += 50;
+    }
     if (zone.startsWith(normalizedQuery) ||
-        metadataZone.startsWith(normalizedQuery))
+        metadataZone.startsWith(normalizedQuery)) {
       score += 40;
-    if (keyId.contains(normalizedQuery)) score += 20;
-    if (keyName.contains(normalizedQuery)) score += 15;
+    }
+    if (keyId.contains(normalizedQuery)) {
+      score += 20;
+    }
+    if (keyName.contains(normalizedQuery)) {
+      score += 15;
+    }
     if (zone.contains(normalizedQuery) ||
-        metadataZone.contains(normalizedQuery))
+        metadataZone.contains(normalizedQuery)) {
       score += 10;
+    }
     return score;
   }
 
@@ -1182,27 +1218,42 @@ class KeyRecordRepository {
         category: _keys[index].category,
         metadata: mergedMetadata,
       );
-      await _appendEvent(event);
 
       if (_firestoreAvailable) {
         try {
           final target = _keys[index];
-          await _persistKeyToFirestore(target);
+          await _saveKey(target);
+          await _appendEvent(event);
+          final body = _notificationBodyForTakenKey(
+            key: _keys[index],
+            borrowerName: borrower.name,
+            purpose: purposeValue,
+          );
           await _saveNotification(
             action: isHandOver ? 'Key Handed Over' : 'Key Taken - In Use',
             title: isHandOver ? 'Key Handed Over' : 'Key Taken',
-            body: isHandOver
-                ? 'Key ${_keys[index].zone}/${_keys[index].keyName} was handed over by ${effectiveMetadata['handoverBy'] ?? recordedBy} to ${borrower.name}.${effectiveMetadata['documentReportNo'] == null || (effectiveMetadata['documentReportNo'] as String).trim().isEmpty ? '' : ' Report No: ${effectiveMetadata['documentReportNo']}.'}'
-                : 'Key ${_keys[index].zone}/${_keys[index].keyName} is now In Use by ${borrower.name}.',
+            body: body,
             keyId: _keys[index].keyId,
             category: _keys[index].category,
             recordedBy: recordedBy,
             audience: 'allMembers',
             type: isHandOver ? 'hand_over' : 'take_key',
+            extraData: {
+              'borrowerName': borrower.name,
+              'purpose': purposeValue,
+              'level': _normalizeMetadataField(_keys[index].metadata['level']),
+              'masterKey': _normalizeMetadataField(_keys[index].metadata['masterKey']),
+              'lotKey': _normalizeMetadataField(_keys[index].metadata['lotKey']),
+              'rollerLevelNo': _normalizeMetadataField(_keys[index].metadata['rollerLevelNo']),
+              'rollerNumber': _normalizeMetadataField(_keys[index].metadata['rollerNumber']),
+              'zone': _keys[index].zone,
+            },
           );
         } catch (_) {
           firestoreWriteFailed = true;
         }
+      } else {
+        await _appendEvent(event);
       }
     }
 
@@ -1241,13 +1292,27 @@ class KeyRecordRepository {
         await _saveNotification(
           action: 'Returned',
           title: 'Key Returned',
-          body:
-              'Key ${_keys[index].zone}/${_keys[index].keyName} has been returned and is now Available.',
+          body: _notificationBodyForReturnedKey(
+            key: _keys[index],
+            borrowerName: record.borrowerName,
+            purpose: record.purpose,
+          ),
           keyId: _keys[index].keyId,
           category: _keys[index].category,
           recordedBy: 'Security Admin',
           audience: 'allMembers',
           type: 'return_key',
+          extraData: {
+            'borrowerName': record.borrowerName,
+            'purpose': record.purpose,
+            'level': _normalizeMetadataField(_keys[index].metadata['level']),
+            'masterKey': _normalizeMetadataField(_keys[index].metadata['masterKey']),
+            'lotKey': _normalizeMetadataField(_keys[index].metadata['lotKey']),
+            'rollerLevelNo': _normalizeMetadataField(_keys[index].metadata['rollerLevelNo']),
+            'rollerNumber': _normalizeMetadataField(_keys[index].metadata['rollerNumber']),
+            'zone': _keys[index].zone,
+            'keyName': _keys[index].keyName,
+          },
         );
       } catch (_) {
         firestoreWriteFailed = true;
@@ -1665,6 +1730,101 @@ class KeyRecordRepository {
       default:
         return 'Key $zone/$keyName status changed to $status.';
     }
+  }
+
+  static String _notificationBodyForTakenKey({
+    required KeyRecord key,
+    required String borrowerName,
+    required String purpose,
+  }) {
+    final category = key.category.trim().toLowerCase();
+    final level = key.metadata['level']?.toString().trim() ?? '';
+    final borrower = borrowerName.trim().isNotEmpty ? borrowerName.trim() : 'Unknown borrower';
+    final purposeText = purpose.trim().isNotEmpty ? purpose.trim() : 'Routine access';
+    final zoneValue = key.zone.trim().isNotEmpty
+        ? key.zone.trim()
+        : key.metadata['zone']?.toString().trim() ?? '';
+
+    String keyReference;
+    switch (category) {
+      case 'zone':
+        keyReference = level.isNotEmpty ? '$level / $zoneValue' : zoneValue;
+        break;
+      case 'master key':
+        final masterKey = key.metadata['masterKey']?.toString().trim() ?? '';
+        final masterKeyLabel = masterKey.isNotEmpty
+            ? 'MASTER KEY $masterKey'
+            : key.keyName.trim();
+        keyReference = level.isNotEmpty ? '$level / $masterKeyLabel' : masterKeyLabel;
+        break;
+      case 'lot':
+        final lotKey = key.metadata['lotKey']?.toString().trim() ?? '';
+        final lotReference = lotKey.isNotEmpty ? lotKey : key.keyName.trim();
+        keyReference = level.isNotEmpty ? '$level / $lotReference' : lotReference;
+        break;
+      case 'roller shutter':
+        final rollerNumber = key.metadata['rollerNumber']?.toString().trim() ?? '';
+        final rollerReference = rollerNumber.isNotEmpty ? rollerNumber : key.keyName.trim();
+        keyReference = level.isNotEmpty ? '$level / $rollerReference' : rollerReference;
+        break;
+      default:
+        final nameValue = key.keyName.trim().isNotEmpty ? key.keyName.trim() : key.keyId.trim();
+        keyReference = level.isNotEmpty ? '$level / $nameValue' : nameValue;
+        break;
+    }
+
+    return 'Key $keyReference has been taken by $borrower.\n\nPurpose: $purposeText';
+  }
+
+  static String _notificationBodyForReturnedKey({
+    required KeyRecord key,
+    required String borrowerName,
+    required String purpose,
+  }) {
+    final category = key.category.trim().toLowerCase();
+    final level = key.metadata['level']?.toString().trim() ?? '';
+    final borrower = borrowerName.trim().isNotEmpty ? borrowerName.trim() : 'Unknown borrower';
+    final purposeText = purpose.trim().isNotEmpty ? purpose.trim() : 'Routine access';
+    final zoneValue = key.zone.trim().isNotEmpty
+        ? key.zone.trim()
+        : key.metadata['zone']?.toString().trim() ?? '';
+
+    String keyReference;
+    switch (category) {
+      case 'zone':
+        keyReference = level.isNotEmpty ? '$level / $zoneValue' : zoneValue;
+        break;
+      case 'master key':
+        final masterKey = key.metadata['masterKey']?.toString().trim() ?? '';
+        final masterKeyLabel = masterKey.isNotEmpty
+            ? 'MASTER KEY $masterKey'
+            : key.keyName.trim();
+        keyReference = level.isNotEmpty ? '$level / $masterKeyLabel' : masterKeyLabel;
+        break;
+      case 'lot':
+        final lotKey = key.metadata['lotKey']?.toString().trim() ?? '';
+        final lotReference = lotKey.isNotEmpty ? lotKey : key.keyName.trim();
+        keyReference = level.isNotEmpty ? '$level / $lotReference' : lotReference;
+        break;
+      case 'roller shutter':
+        final rollerNumber = key.metadata['rollerNumber']?.toString().trim() ?? '';
+        final rollerReference = rollerNumber.isNotEmpty ? rollerNumber : key.keyName.trim();
+        keyReference = level.isNotEmpty ? '$level / $rollerReference' : rollerReference;
+        break;
+      default:
+        final nameValue = key.keyName.trim().isNotEmpty ? key.keyName.trim() : key.keyId.trim();
+        keyReference = level.isNotEmpty ? '$level / $nameValue' : nameValue;
+        break;
+    }
+
+    return 'Key $keyReference has been returned by $borrower.\n\nPurpose: $purposeText\n\nStatus: Available';
+  }
+
+  static String _normalizeMetadataField(Object? field) {
+    if (field == null) {
+      return '';
+    }
+    return field.toString().trim();
   }
 
   static String _notificationTypeForStatus(String status, String action) {

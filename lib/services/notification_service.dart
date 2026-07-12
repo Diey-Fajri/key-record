@@ -83,6 +83,14 @@ class NotificationService {
       return;
     }
 
+    final notificationId = message.data['notificationId']?.toString();
+    if (notificationId != null && notificationId.isNotEmpty) {
+      if (AppNotificationService.hasSeenNotification(notificationId)) {
+        return;
+      }
+      AppNotificationService.markNotificationAsSeen(notificationId);
+    }
+
     await _showLocalNotification(message);
   }
 

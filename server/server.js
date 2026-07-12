@@ -78,19 +78,6 @@ async function sendNotification(doc) {
   }
 }
 
-async function processPendingNotifications() {
-  try {
-    const snapshot = await db.collection('notifications').where('fcmSent', '!=', true).get();
-    console.log(`Processing ${snapshot.size} pending notification(s).`);
-
-    for (const doc of snapshot.docs) {
-      await sendNotification(doc);
-    }
-  } catch (error) {
-    console.error('Failed to process pending notifications:', error);
-  }
-}
-
 async function startListener() {
   console.log('Listening for new Firestore notifications...');
   db.collection('notifications')
@@ -98,11 +85,13 @@ async function startListener() {
     .orderBy('createdAt', 'asc')
     .onSnapshot(async (snapshot) => {
       for (const change of snapshot.docChanges()) {
-        if (change.type === 'added' || change.type === 'modified') {
-          const doc = change.doc;
-          if (doc.exists) {
-            await sendNotification(doc);
-          }
+        if (change.type !== 'added') {
+          continue;
+        }
+
+        const doc = change.doc;
+        if (doc.exists) {
+          await sendNotification(doc);
         }
       }
     }, (error) => {
@@ -112,7 +101,6 @@ async function startListener() {
 
 (async function main() {
   try {
-    await processPendingNotifications();
     await startListener();
   } catch (error) {
     console.error('Server startup failed:', error);
