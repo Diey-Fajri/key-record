@@ -1,0 +1,12 @@
+{
+  "name": "key-record-notification-server",
+  "version": "1.0.0",
+  "description": "Node.js server to send FCM notifications from Firestore notifications collection",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^11.11.0"
+  }
+}
