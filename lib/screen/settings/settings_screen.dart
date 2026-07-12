@@ -236,7 +236,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Update source: Firebase Storage (metadata: app_updates/current)',
+                      'Update source: GitHub Release → Firestore metadata',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: Colors.black54,
                           ),
