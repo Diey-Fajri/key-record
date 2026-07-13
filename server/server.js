@@ -65,8 +65,19 @@ function extractActiveTokens(snapshotDocs) {
 }
 
 async function getActiveTokens() {
-  const snapshot = await db.collection(tokensCollectionName).where('active', '==', true).get();
-  return extractActiveTokens(snapshot.docs);
+  const snapshot = await db.collection(tokensCollectionName).get();
+  const allDocs = snapshot.docs || [];
+  const activeTokens = extractActiveTokens(allDocs);
+
+  console.log(`[FCM] Found ${allDocs.length} FCM token documents in ${tokensCollectionName}; ${activeTokens.length} active`);
+  allDocs.forEach((doc, index) => {
+    const data = doc.data && doc.data();
+    const token = data && typeof data.token === 'string' ? data.token.trim() : '';
+    const active = data && data.active === true;
+    console.log(`[FCM] Token ${index + 1}/${allDocs.length}: active=${active} docId=${doc.id} token=${token}`);
+  });
+
+  return activeTokens;
 }
 
 async function sendNotification(doc) {
@@ -99,18 +110,24 @@ async function sendNotification(doc) {
     const tokens = await getActiveTokens();
 
     if (tokens.length > 0) {
+      tokens.forEach((token, index) => {
+        console.log(`[FCM] Sending notification to token ${index + 1}/${tokens.length}: ${token}`);
+      });
+
       const multicastMessage = {
         tokens,
         ...message,
       };
       const response = await messaging.sendEachForMulticast(multicastMessage);
-      console.log(`FCM multicast sent for ${doc.id}:`, response);
+      const successCount = (response.responses || []).filter((item) => item.success).length;
+      console.log(`[FCM] FCM success count: ${successCount}/${tokens.length}`);
+      console.log(`[FCM] Multicast response for ${doc.id}:`, response);
     } else {
       const response = await messaging.send({
         ...message,
         topic: topicName,
       });
-      console.log(`FCM topic fallback sent for ${doc.id}:`, response);
+      console.log(`[FCM] Topic fallback sent for ${doc.id}:`, response);
     }
 
     await doc.ref.update({

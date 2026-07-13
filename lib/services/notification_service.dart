@@ -17,6 +17,7 @@ class NotificationService {
   static final FirebaseMessaging _messaging = FirebaseMessaging.instance;
   static late final GlobalKey<NavigatorState> _navigatorKey;
   static String? _lastRegisteredToken;
+  static String? _deviceId;
 
   static const String _channelId = 'security_alerts';
   static const String _channelName = 'Security Alerts';
@@ -170,35 +171,52 @@ class NotificationService {
 
     final activeToken = token ?? await _messaging.getToken();
     if (activeToken == null || activeToken.trim().isEmpty) {
+      debugPrint('FCM token registration skipped because token is empty.');
       return;
     }
 
+    final user = FirebaseAuth.instance.currentUser;
+    final userId = user?.uid ?? 'anonymous';
+    final system = Platform.operatingSystem;
+    final timestamp = DateTime.now().microsecondsSinceEpoch;
+    final deviceId = _deviceId ??= '$system-$userId-$timestamp';
+    final firestorePath = 'fcmTokens/$deviceId';
+
     final previousToken = _lastRegisteredToken;
     if (previousToken != null && previousToken != activeToken) {
-      await FirebaseFirestore.instance.collection('fcmTokens').doc(previousToken).set(
-        {
-          'active': false,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
+      try {
+        await FirebaseFirestore.instance.collection('fcmTokens').doc(deviceId).set(
+          {
+            'active': false,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      } catch (error) {
+        debugPrint('FCM old token cleanup failed: $error');
+      }
     }
 
     _lastRegisteredToken = activeToken;
 
-    final user = FirebaseAuth.instance.currentUser;
-    await FirebaseFirestore.instance.collection('fcmTokens').doc(activeToken).set(
-      {
-        'token': activeToken,
-        'active': true,
-        'userId': user?.uid,
-        'userEmail': user?.email,
-        'platform': Platform.operatingSystem,
-        'updatedAt': FieldValue.serverTimestamp(),
-        'createdAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    try {
+      await FirebaseFirestore.instance.collection('fcmTokens').doc(deviceId).set(
+        {
+          'token': activeToken,
+          'active': true,
+          'userId': userId,
+          'userEmail': user?.email,
+          'platform': Platform.operatingSystem,
+          'deviceId': deviceId,
+          'updatedAt': FieldValue.serverTimestamp(),
+          'createdAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+      debugPrint('FCM token saved: user=$userId device=$deviceId path=$firestorePath token=$activeToken');
+    } catch (error) {
+      debugPrint('FCM token save failed for $firestorePath: $error');
+    }
   }
 
   static Future<void> unregisterCurrentDeviceToken() async {
@@ -207,13 +225,17 @@ class NotificationService {
       return;
     }
 
-    await FirebaseFirestore.instance.collection('fcmTokens').doc(token).set(
-      {
-        'active': false,
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    final deviceId = _deviceId;
+    if (deviceId != null) {
+      await FirebaseFirestore.instance.collection('fcmTokens').doc(deviceId).set(
+        {
+          'active': false,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+    }
+
     _lastRegisteredToken = null;
   }
 

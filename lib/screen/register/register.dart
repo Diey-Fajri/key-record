@@ -66,9 +66,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
 
     _savedBorrowersSubscription = repository.KeyRecordRepository.watchSavedBorrowers().listen((items) {
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       setState(() {
         _savedBorrowers
           ..clear()
@@ -157,11 +155,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               return label.contains(query);
                             });
                           },
-                          onSelected: (key) {
-                            _commitSelectedKey(key);
-                          },
-                          fieldViewBuilder:
-                              (context, controller, focusNode, onSubmitted) {
+                          onSelected: _commitSelectedKey,
+                          fieldViewBuilder: (context, controller, focusNode, onSubmitted) {
                             _keySearchFieldController = controller;
 
                             return TextFormField(
@@ -234,9 +229,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     else
                       _SelectedKeysPanel(
                         keys: _selectedKeys,
-                        onRemove: (key) {
-                          setState(() => _selectedKeys.remove(key));
-                        },
+                        onRemove: (key) => setState(() => _selectedKeys.remove(key)),
                       ),
                   ],
                 ),
@@ -259,14 +252,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               ))
                           .toList(),
                       onChanged: (value) {
-                        if (value != null) {
-                          setState(() {
-                            _borrowerCategory = value;
-                            if (value == 'Staff') {
-                              _icController.clear();
-                            }
-                          });
-                        }
+                        if (value == null) return;
+                        setState(() {
+                          _borrowerCategory = value;
+                          if (value == 'Staff') {
+                            _icController.clear();
+                          }
+                        });
                       },
                     ),
                     const SizedBox(height: 12),
@@ -380,15 +372,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               ))
                           .toList(),
                       onChanged: (value) {
-                        if (value != null) {
-                          setState(() => _takeStatus = value);
-                          if (value == 'Hand Over') {
-                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                              if (mounted) {
-                                _openHandoverDetailsDialog();
-                              }
-                            });
-                          }
+                        if (value == null) return;
+                        setState(() => _takeStatus = value);
+                        if (value == 'Hand Over') {
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (mounted) {
+                              _openHandoverDetailsDialog();
+                            }
+                          });
                         }
                       },
                     ),
@@ -502,7 +493,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
   }
 
-  Future<void> _submit() async { // Orchestrator
+  Future<void> _submit() async {
     if (_isSubmitting) {
       return;
     }
@@ -516,75 +507,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
-    final borrowerName = _nameController.text.trim();
-    final takenAt = _takeStatus == 'Hand Over' ? _parseHandoverDateTime() : _now;
-    if (takenAt == null) {
-      _showMessage('Please enter a valid handover date and time.');
-      return;
-    }
-    final currentKeys = await repository.KeyRecordRepository.watchAllKeys().first;
-    final selectedRecords = <repository.KeyRecord>[];
-    for (final selected in _selectedKeys) {
-      final candidate = repository.KeyRecord(
-        docId: selected.docId.trim().isEmpty ? null : selected.docId.trim(),
-        keyId: selected.keyId,
-        zone: selected.zone,
-        keyName: selected.name,
-        borrowerName: '',
-        icPassport: '',
-        phoneNumber: '',
-        company: '',
-        purpose: '',
-        status: selected.status,
-        takenAt: DateTime.now(),
-        category: selected.category,
-        metadata: selected.metadata,
-      );
-      final match = currentKeys.cast<repository.KeyRecord?>().firstWhere(
-        (key) => key != null && repository.KeyRecordRepository.recordsMatch(candidate, key!),
-        orElse: () => null,
-      );
-      if (match != null) {
-        selectedRecords.add(match);
-      }
-    }
-    if (selectedRecords.length != _selectedKeys.length) {
-      _showMessage('One or more selected keys are no longer available. Please reselect keys.');
-      return;
-    }
-    final borrower = repository.Borrower(
-      name: borrowerName,
-      icPassport: _borrowerCategory == 'Staff' ? '' : _icController.text.trim(),
-      phone: _phoneController.text.trim(),
-      company: _companyController.text.trim(),
-      department: _departmentController.text.trim(),
-    );
-    final savedBorrower = await _saveBorrowerIfNeeded();
-    final keyLabels = selectedRecords.map((record) => '${record.zone}/${record.keyName}').join(', ');
-    final isHandOver = _takeStatus == 'Hand Over';
-    final recordedBy = AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin';
-
-    if (isHandOver && !_validateHandoverDetails()) {
-      _showMessage('Please complete the handover popup details first.');
-      return;
-    }
-
     setState(() => _isSubmitting = true);
 
     try {
-      // 1. Validate inputs
       final takenAt = _getTakenAt();
-      final selectedRecords = await _validateAndGetSelectedRecords();
-      if (selectedRecords == null || takenAt == null || !_validateForm()) {
+      if (takenAt == null) {
+        _showMessage('Please enter a valid handover date and time.');
         return;
       }
 
-      // 2. Prepare data
+      final selectedRecords = await _validateAndGetSelectedRecords();
+      if (selectedRecords == null || !_validateForm()) {
+        return;
+      }
+
       final borrower = _buildBorrower();
       final metadata = _buildTransactionMetadata(borrower.name);
       final recordedBy = AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin';
 
-      // 3. Execute transaction
       await repository.KeyRecordRepository.takeKeys(
         selectedRecords,
         borrower,
@@ -594,7 +534,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
         metadata: metadata,
       );
 
-      // 4. Handle post-submission tasks
       final wasBorrowerSaved = await _saveBorrowerIfNeeded();
       if (mounted) {
         await _showSuccessDialog(selectedRecords, borrower, takenAt, wasBorrowerSaved);

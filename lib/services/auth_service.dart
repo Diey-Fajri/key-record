@@ -45,6 +45,7 @@ class AuthService {
         try {
           await NotificationService.subscribeToSecurityTopic();
           await NotificationService.registerCurrentDeviceToken();
+          debugPrint('AuthService: registered device token after initialize');
         } catch (error) {
           debugPrint('Failed to subscribe to security_all topic: $error');
         }
@@ -151,6 +152,7 @@ class AuthService {
             try {
               await NotificationService.subscribeToSecurityTopic();
               await NotificationService.registerCurrentDeviceToken();
+              debugPrint('AuthService: registered device token after login');
             } catch (error) {
               debugPrint('Failed to subscribe to security_all topic: $error');
             }
@@ -269,6 +271,7 @@ class AuthService {
       try {
         await NotificationService.subscribeToSecurityTopic();
         await NotificationService.registerCurrentDeviceToken();
+        debugPrint('AuthService: registered device token after account creation');
       } catch (error) {
         debugPrint('Failed to subscribe to security_all topic: $error');
       }
