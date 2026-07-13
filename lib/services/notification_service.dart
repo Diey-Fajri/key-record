@@ -178,8 +178,15 @@ class NotificationService {
     final user = FirebaseAuth.instance.currentUser;
     final userId = user?.uid ?? 'anonymous';
     final system = Platform.operatingSystem;
-    final timestamp = DateTime.now().microsecondsSinceEpoch;
-    final deviceId = _deviceId ??= '$system-$userId-$timestamp';
+    final deviceId = _deviceId ??= '$system-$userId';
+    final currentToken = activeToken;
+    debugPrint('==============================');
+    debugPrint('[FCM] registerCurrentDeviceToken() CALLED');
+    debugPrint('[FCM] userId: $userId');
+    debugPrint('[FCM] system: $system');
+    debugPrint('[FCM] deviceId: $deviceId');
+    debugPrint('[FCM] token: ${currentToken.substring(0, 20)}...');
+    debugPrint('==============================');
     final firestorePath = 'fcmTokens/$deviceId';
 
     final previousToken = _lastRegisteredToken;
@@ -200,6 +207,7 @@ class NotificationService {
     _lastRegisteredToken = activeToken;
 
     try {
+      debugPrint('[FCM] Writing token to document: $deviceId');
       await FirebaseFirestore.instance.collection('fcmTokens').doc(deviceId).set(
         {
           'token': activeToken,
@@ -213,6 +221,7 @@ class NotificationService {
         },
         SetOptions(merge: true),
       );
+      debugPrint('[FCM] Firestore write SUCCESS: $deviceId');
       debugPrint('FCM token saved: user=$userId device=$deviceId path=$firestorePath token=$activeToken');
     } catch (error) {
       debugPrint('FCM token save failed for $firestorePath: $error');
