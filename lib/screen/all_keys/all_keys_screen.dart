@@ -102,7 +102,7 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Navigation',
+                          'Category',
                           style: Theme.of(context).textTheme.titleLarge?.copyWith(
                             color: Colors.white,
                             fontWeight: FontWeight.w700,
@@ -110,7 +110,7 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          'Choose a category button, then filter by level.',
+                          'Filter by category and then by level.',
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: Colors.white.withValues(alpha: 0.85),
                           ),
@@ -121,41 +121,31 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
                 ),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _navigationItems.map((item) {
-                      final selected = item == _selectedNavigation;
-                      return FilledButton(
-                        onPressed: () {
-                          setState(() {
-                            _selectedNavigation = item;
-                            _selectedLevel = 'All';
-                          });
-                        },
-                        style: FilledButton.styleFrom(
-                          backgroundColor: selected
-                              ? const Color(0xFF263238)
-                              : Colors.white,
-                          foregroundColor: selected
-                              ? Colors.white
-                              : const Color(0xFF263238),
-                          side: BorderSide(
-                            color: selected
-                                ? const Color(0xFF263238)
-                                : const Color(0xFFCFD8DC),
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(100),
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 11,
-                          ),
-                        ),
-                        child: Text(item),
+                  child: DropdownButtonFormField<String>(
+                    initialValue: _selectedNavigation,
+                    onChanged: (String? newValue) {
+                      if (newValue != null) {
+                        setState(() {
+                          _selectedNavigation = newValue;
+                          _selectedLevel = 'All';
+                        });
+                      }
+                    },
+                    items: _navigationItems.map<DropdownMenuItem<String>>((String value) {
+                      return DropdownMenuItem<String>(
+                        value: value,
+                        child: Text(value),
                       );
                     }).toList(),
+                    decoration: InputDecoration(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      filled: true,
+                      fillColor: Colors.white,
+                    ),
+                    isExpanded: true,
                   ),
                 ),
                 const SizedBox(height: 12),

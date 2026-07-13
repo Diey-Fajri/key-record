@@ -133,26 +133,38 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF263238),
         foregroundColor: Colors.white,
-        toolbarHeight: 92,
+        toolbarHeight: 64,
         titleSpacing: 16,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            Text(
+          children: [
+            const Text(
               'Key Record',
               style: TextStyle(
-                fontSize: 24,
+                fontSize: 20,
                 fontWeight: FontWeight.w700,
                 color: Colors.white,
               ),
             ),
-            SizedBox(height: 2),
-            Text(
-              'Unit Kawalan CCTV',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: Color(0xFFE0E5E8),
+            const SizedBox(height: 2),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.only(bottom: 8),
+              decoration: const BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(
+                    color: Color(0xFF455A64),
+                    width: 0.5,
+                  ),
+                ),
+              ),
+              child: const Text(
+                'Unit Kawalan CCTV',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFFE0E5E8),
+                ),
               ),
             ),
           ],
@@ -178,104 +190,114 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 if (isWide) _NavigationRail(onSelected: _handleNavigation),
                 Expanded(
-                  child: RefreshIndicator(
-                    onRefresh: _refreshHomeData,
-                    child: SingleChildScrollView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _HeaderSection(now: _now),
-                          const SizedBox(height: 16),
-                          StreamBuilder<List<KeyRecord>>(
-                            stream: KeyRecordRepository.watchAllKeys(),
-                            builder: (context, snapshot) {
-                              final suggestions = KeyRecordRepository.searchKeyHints(
-                                _searchController.text,
-                              );
-                              return _SearchBar(
-                                controller: _searchController,
-                                suggestions: suggestions,
-                                onSubmitted: (value) {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute<void>(
-                                      builder: (_) => SearchScreen(
-                                        initialQuery: value.trim(),
-                                      ),
-                                    ),
-                                  );
-                                },
-                                onSuggestionSelected: (record) {
-                                  _searchController.clear();
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute<void>(
-                                      builder: (_) => TakeKeyDetailScreen(record: record),
-                                    ),
-                                  );
-                                },
-                              );
-                            },
-                          ),
-                          if (!isWide) ...[
-                            const SizedBox(height: 16),
-                            _NavigationGrid(onSelected: _handleNavigation),
-                          ],
-                          const SizedBox(height: 24),
-                          Text(
-                            'Keys Currently In Use',
-                            style: Theme.of(context).textTheme.titleLarge
-                                ?.copyWith(fontWeight: FontWeight.w700),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Live list for keys collection where status is "in Use".',
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(color: Colors.black54),
-                          ),
-                          const SizedBox(height: 12),
-                          StreamBuilder<List<KeyRecord>>(
-                            stream: _keysInUseStream,
-                            builder: (context, snapshot) {
-                              if (snapshot.connectionState ==
-                                      ConnectionState.waiting &&
-                                  !snapshot.hasData) {
-                                return const Center(
-                                  child: Padding(
-                                    padding: EdgeInsets.all(32),
-                                    child: CircularProgressIndicator(),
-                                  ),
-                                );
-                              }
-
-                              final keys = snapshot.data ?? const [];
-                              final borrowerGroups = _groupKeysByBorrower(keys);
-
-                              if (borrowerGroups.isEmpty) {
-                                return const _EmptyKeysState();
-                              }
-
-                              return ListView.separated(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                itemCount: borrowerGroups.length,
-                                separatorBuilder: (context, index) =>
-                                    const SizedBox(height: 12),
-                                itemBuilder: (context, index) {
-                                  return KeyInUseCard(
-                                    group: borrowerGroups[index],
-                                    onDetail: (record) => _openTakeKeyDetail(context, record),
-                                    onReturn: (record) => _returnKey(context, record),
-                                    onReturnAll: () => _returnAllKeys(context, borrowerGroups[index]),
-                                    returningIds: _returningIds,
-                                  );
-                                },
-                              );
-                            },
-                          ),
-                        ],
+                  child: Column(
+                    children: [
+                      // Fixed header - username, date, time
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        child: _HeaderSection(now: _now),
                       ),
-                    ),
+                      // Scrollable content below header
+                      Expanded(
+                        child: RefreshIndicator(
+                          onRefresh: _refreshHomeData,
+                          child: SingleChildScrollView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                StreamBuilder<List<KeyRecord>>(
+                                  stream: KeyRecordRepository.watchAllKeys(),
+                                  builder: (context, snapshot) {
+                                    final suggestions = KeyRecordRepository.searchKeyHints(
+                                      _searchController.text,
+                                    );
+                                    return _SearchBar(
+                                      controller: _searchController,
+                                      suggestions: suggestions,
+                                      onSubmitted: (value) {
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute<void>(
+                                            builder: (_) => SearchScreen(
+                                              initialQuery: value.trim(),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                      onSuggestionSelected: (record) {
+                                        _searchController.clear();
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute<void>(
+                                            builder: (_) => TakeKeyDetailScreen(record: record),
+                                          ),
+                                        );
+                                      },
+                                    );
+                                  },
+                                ),
+                                if (!isWide) ...[
+                                  const SizedBox(height: 16),
+                                  _NavigationGrid(onSelected: _handleNavigation),
+                                ],
+                                const SizedBox(height: 24),
+                                Text(
+                                  'Keys Currently In Use',
+                                  style: Theme.of(context).textTheme.titleLarge
+                                      ?.copyWith(fontWeight: FontWeight.w700),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Live list for keys collection where status is "in Use".',
+                                  style: Theme.of(context).textTheme.bodyMedium
+                                      ?.copyWith(color: Colors.black54),
+                                ),
+                                const SizedBox(height: 12),
+                                StreamBuilder<List<KeyRecord>>(
+                                  stream: _keysInUseStream,
+                                  builder: (context, snapshot) {
+                                    if (snapshot.connectionState ==
+                                            ConnectionState.waiting &&
+                                        !snapshot.hasData) {
+                                      return const Center(
+                                        child: Padding(
+                                          padding: EdgeInsets.all(32),
+                                          child: CircularProgressIndicator(),
+                                        ),
+                                      );
+                                    }
+
+                                    final keys = snapshot.data ?? const [];
+                                    final borrowerGroups = _groupKeysByBorrower(keys);
+
+                                    if (borrowerGroups.isEmpty) {
+                                      return const _EmptyKeysState();
+                                    }
+
+                                    return ListView.separated(
+                                      shrinkWrap: true,
+                                      physics: const NeverScrollableScrollPhysics(),
+                                      itemCount: borrowerGroups.length,
+                                      separatorBuilder: (context, index) =>
+                                          const SizedBox(height: 12),
+                                      itemBuilder: (context, index) {
+                                        return KeyInUseCard(
+                                          group: borrowerGroups[index],
+                                          onDetail: (record) => _openTakeKeyDetail(context, record),
+                                          onReturn: (record) => _returnKey(context, record),
+                                          onReturnAll: () => _returnAllKeys(context, borrowerGroups[index]),
+                                          returningIds: _returningIds,
+                                        );
+                                      },
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -335,12 +357,15 @@ class _HomeScreenState extends State<HomeScreen> {
     final id = (record.docId?.trim().isNotEmpty ?? false)
         ? record.docId!.trim()
         : record.keyId.trim().toUpperCase();
+    debugPrint('[ACTION START] Return Key: ${record.keyId}');
     if (mounted) {
       setState(() => _returningIds.add(id));
     }
     try {
       await KeyRecordRepository.returnKey(record);
+      debugPrint('[ACTION SUCCESS] Return Key: ${record.keyId}');
     } catch (error) {
+      debugPrint('[ACTION FAILED] Return Key: ${record.keyId}, Error: $error');
       if (!context.mounted) {
         return;
       }
@@ -528,15 +553,15 @@ class _HeaderSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: const Color(0xFFE0E5E8)),
       ),
       child: Wrap(
-        spacing: 24,
-        runSpacing: 12,
+        spacing: 16,
+        runSpacing: 8,
         alignment: WrapAlignment.spaceBetween,
         children: [
           _HeaderValue(

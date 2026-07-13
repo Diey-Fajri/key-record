@@ -1286,6 +1286,7 @@ class KeyRecordRepository {
             key: _keys[index],
             borrowerName: borrower.name,
             purpose: purposeValue,
+            actor: recordedBy,
           );
           await _saveNotification(
             action: isHandOver ? 'Key Handed Over' : 'Key Taken - In Use',
@@ -1371,6 +1372,7 @@ class KeyRecordRepository {
               key: _keys[index],
               borrowerName: record.borrowerName,
               purpose: record.purpose,
+              actor: resolveActor(null),
             ),
             keyId: _keys[index].keyId,
             category: _keys[index].category,
@@ -1438,7 +1440,7 @@ class KeyRecordRepository {
           action: 'No Return',
           title: 'Key Marked No Return',
           body:
-              'Key ${_keys[index].zone}/${_keys[index].keyName} is now marked No Return.',
+              'From: ${resolveActor(null)}\nKey ${_keys[index].zone}/${_keys[index].keyName} is now marked No Return.',
           keyId: _keys[index].keyId,
           category: _keys[index].category,
           recordedBy: resolveActor(null),
@@ -1484,7 +1486,7 @@ class KeyRecordRepository {
           action: 'At Maintenance',
           title: 'Key Under Maintenance',
           body:
-              'Key ${_keys[index].zone}/${_keys[index].keyName} is now under maintenance.',
+              'From: ${resolveActor(null)}\nKey ${_keys[index].zone}/${_keys[index].keyName} is now under maintenance.',
           keyId: _keys[index].keyId,
           category: _keys[index].category,
           recordedBy: resolveActor(null),
@@ -1560,7 +1562,7 @@ class KeyRecordRepository {
           action: 'Replaced',
           title: 'Key Replaced',
           body:
-              'Key ${_keys[index].zone}/${_keys[index].keyName} has been replaced and is now Available.',
+              'From: ${resolveActor(null)}\nKey ${_keys[index].zone}/${_keys[index].keyName} has been replaced and is now Available.',
           keyId: _keys[index].keyId,
           category: _keys[index].category,
           recordedBy: resolveActor(null),
@@ -1630,7 +1632,7 @@ class KeyRecordRepository {
           action: 'Hand Over',
           title: 'Key Handed Over',
           body:
-              'Key ${_keys[index].zone}/${_keys[index].keyName} is now marked Hand Over by ${resolveActor(actor)}.',
+              'From: ${resolveActor(actor)}\nKey ${_keys[index].zone}/${_keys[index].keyName} is now marked Hand Over.',
           keyId: _keys[index].keyId,
           category: _keys[index].category,
           recordedBy: resolveActor(actor),
@@ -1696,7 +1698,7 @@ class KeyRecordRepository {
           action: 'Receive Key',
           title: 'Key Received',
           body:
-              'Key ${previous.zone}/${previous.keyName} has been received and is now Available.',
+              'From: ${resolveActor(actor)}\nKey ${previous.zone}/${previous.keyName} has been received and is now Available.',
           keyId: previous.keyId,
           category: previous.category,
           recordedBy: resolveActor(actor),
@@ -1792,25 +1794,26 @@ class KeyRecordRepository {
     required String zone,
     required String actor,
   }) {
+    final fromText = actor.isNotEmpty ? 'From: $actor\n' : '';
     switch (status) {
       case 'Lost':
         return actor.isNotEmpty
-            ? '$actor marked $zone/$keyName as Lost.'
-            : 'The key $zone/$keyName was marked as Lost.';
+            ? '${fromText}Marked $zone/$keyName as Lost.'
+            : '${fromText}The key $zone/$keyName was marked as Lost.';
       case 'Damaged':
         return actor.isNotEmpty
-            ? '$actor marked $zone/$keyName as Damaged.'
-            : 'The key $zone/$keyName was marked as Damaged.';
+            ? '${fromText}Marked $zone/$keyName as Damaged.'
+            : '${fromText}The key $zone/$keyName was marked as Damaged.';
       case 'Available':
-        return 'Key $zone/$keyName is now Available.';
+        return '${fromText}Key $zone/$keyName is now Available.';
       case 'In Use':
-        return 'Key $zone/$keyName is now In Use.';
+        return '${fromText}Key $zone/$keyName is now In Use.';
       case 'Hand Over':
-        return 'Key $zone/$keyName is now marked Hand Over.';
+        return '${fromText}Key $zone/$keyName is now marked Hand Over.';
       case 'Not Available':
-        return 'Key $zone/$keyName is now marked Not Available.';
+        return '${fromText}Key $zone/$keyName is now marked Not Available.';
       default:
-        return 'Key $zone/$keyName status changed to $status.';
+        return '${fromText}Key $zone/$keyName status changed to $status.';
     }
   }
 
@@ -1818,6 +1821,7 @@ class KeyRecordRepository {
     required KeyRecord key,
     required String borrowerName,
     required String purpose,
+    required String actor,
   }) {
     final category = key.category.trim().toLowerCase();
     final level = key.metadata['level']?.toString().trim() ?? '';
@@ -1855,13 +1859,15 @@ class KeyRecordRepository {
         break;
     }
 
-    return 'Key $keyReference has been taken by $borrower.\n\nPurpose: $purposeText';
+    final fromText = actor.isNotEmpty ? 'From: $actor\n' : '';
+    return '${fromText}Key $keyReference has been taken by $borrower.\nPurpose: $purposeText';
   }
 
   static String _notificationBodyForReturnedKey({
     required KeyRecord key,
     required String borrowerName,
     required String purpose,
+    required String actor,
   }) {
     final category = key.category.trim().toLowerCase();
     final level = key.metadata['level']?.toString().trim() ?? '';
@@ -1899,7 +1905,8 @@ class KeyRecordRepository {
         break;
     }
 
-    return 'Key $keyReference has been returned by $borrower.\n\nPurpose: $purposeText\n\nStatus: Available';
+    final fromText = actor.isNotEmpty ? 'From: $actor\n' : '';
+    return '${fromText}Key $keyReference has been returned by $borrower.\nPurpose: $purposeText\nStatus: Available';
   }
 
   static String _normalizeMetadataField(Object? field) {
@@ -2043,8 +2050,8 @@ class KeyRecordRepository {
               ? 'New Key Registered - Not Available'
               : 'New Key Registered',
           body: normalizedStatus == 'Not Available'
-              ? '$recordedBy registered Key $keyName as Not Available'
-              : 'A new key "$keyName" has been registered.$qtySuffix',
+              ? 'From: $recordedBy\nKey $keyName registered as Not Available'
+              : 'From: $recordedBy\nA new key "$keyName" has been registered.$qtySuffix',
           keyId: key.keyId,
           category: category,
           recordedBy: recordedBy,
@@ -2151,7 +2158,7 @@ class KeyRecordRepository {
         await _saveNotification(
           action: 'Key Details Edited',
           title: 'Key Updated',
-          body: 'Key "$keyName" details were updated by $recordedBy.',
+          body: 'From: $recordedBy\nKey "$keyName" details were updated.',
           keyId: keyId,
           category: category,
           recordedBy: recordedBy,
@@ -2204,7 +2211,7 @@ class KeyRecordRepository {
           action: 'Key Deleted',
           title: 'Key Deleted',
           body:
-              'Key ${deleted.zone}/${deleted.keyName} was deleted by $recordedBy.',
+              'From: $recordedBy\nKey ${deleted.zone}/${deleted.keyName} was deleted.',
           keyId: deleted.keyId,
           category: deleted.category,
           recordedBy: recordedBy,
