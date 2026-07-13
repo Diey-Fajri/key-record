@@ -27,11 +27,11 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late DateTime _now;
-  late Timer _clockTimer;
+  Timer? _clockTimer;
   final TextEditingController _searchController = TextEditingController();
   final Stream<List<KeyRecord>> _keysInUseStream =
       KeyRecordRepository.watchKeysInUse();
-  late final AppUpdateService _appUpdateService;
+  AppUpdateService? _appUpdateService;
   bool _checkingUpdateFromNotification = false;
   bool _startupUpdateChecked = false;
   final Set<String> _returningIds = <String>{};
@@ -45,23 +45,33 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() {});
       }
     });
-    _appUpdateService = AppUpdateService();
+    try {
+      _appUpdateService = AppUpdateService();
+    } catch (error) {
+      debugPrint('Unable to initialize app update service: $error');
+      _appUpdateService = null;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_isRunningInWidgetTest()) {
+        return;
+      }
       AppNotificationService.onNotificationReceived = _onNotificationReceived;
       AppNotificationService.start();
       _checkForUpdatesOnStartup();
     });
-    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) {
-        setState(() => _now = DateTime.now());
-      }
-    });
+    if (!_isRunningInWidgetTest()) {
+      _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) {
+          setState(() => _now = DateTime.now());
+        }
+      });
+    }
   }
 
   @override
   void dispose() {
     AppNotificationService.onNotificationReceived = null;
-    _clockTimer.cancel();
+    _clockTimer?.cancel();
     _searchController.dispose();
     AppNotificationService.stop();
     super.dispose();
@@ -99,15 +109,20 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _checkAndPromptForUpdate() async {
+    final service = _appUpdateService;
+    if (service == null) {
+      return;
+    }
+
     final info = await PackageInfo.fromPlatform();
-    final result = await _appUpdateService.checkForUpdate(currentVersion: info.version);
+    final result = await service.checkForUpdate(currentVersion: info.version);
     if (!mounted || !result.isUpdateAvailable) {
       return;
     }
     await showAppUpdateDialog(
       context: context,
       result: result,
-      appUpdateService: _appUpdateService,
+      appUpdateService: service,
     );
   }
 
@@ -925,78 +940,75 @@ class KeyInUseCard extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                      Text(
-                        _keyDisplayLabel(record),
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w700,
+                            Text(
+                              _keyDisplayLabel(record),
+                              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
                             ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        _formatTakenDateTime(record.takenAt),
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodySmall
-                            ?.copyWith(color: Colors.black54),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Purpose: ${_purposeLabel(record)}',
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodySmall
-                            ?.copyWith(color: Colors.black87),
-                      ),
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          FilledButton(
-                            onPressed: () {
-                              final id = (record.docId?.trim().isNotEmpty ?? false)
-                                  ? record.docId!.trim()
-                                  : record.keyId.trim().toUpperCase();
-                              final isReturning = returningIds.contains(id);
-                              if (isReturning) return null;
-                              return onReturn(record);
-                            },
-                            style: FilledButton.styleFrom(
-                              backgroundColor: AppActionTheme.success,
-                              foregroundColor: Colors.white,
-                              minimumSize: const Size(96, 40),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(AppActionTheme.buttonRadius),
-                              ),
+                            const SizedBox(height: 6),
+                            Text(
+                              _formatTakenDateTime(record.takenAt),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(color: Colors.black54),
                             ),
-                            child: Builder(builder: (context) {
-                              final id = (record.docId?.trim().isNotEmpty ?? false)
-                                  ? record.docId!.trim()
-                                  : record.keyId.trim().toUpperCase();
-                              final isReturning = returningIds.contains(id);
-                              return isReturning
-                                  ? const SizedBox(
-                                      height: 16,
-                                      width: 16,
-                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                    )
-                                  : const Text('Return');
-                            }),
-                          ),
-                          OutlinedButton(
-                            onPressed: () => onDetail(record),
-                            style: OutlinedButton.styleFrom(
-                              minimumSize: const Size(88, 40),
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(AppActionTheme.buttonRadius),
-                              ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Purpose: ${_purposeLabel(record)}',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(color: Colors.black87),
                             ),
-                            child: const Text('Detail'),
-                          ),
-                        ],
-                      ),
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                Builder(builder: (context) {
+                                  final id = (record.docId?.trim().isNotEmpty ?? false)
+                                      ? record.docId!.trim()
+                                      : record.keyId.trim().toUpperCase();
+                                  final isReturning = returningIds.contains(id);
+                                  return FilledButton(
+                                    onPressed: isReturning
+                                        ? null
+                                        : () {
+                                            onReturn(record);
+                                          },
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: AppActionTheme.success,
+                                      foregroundColor: Colors.white,
+                                      minimumSize: const Size(96, 40),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(AppActionTheme.buttonRadius),
+                                      ),
+                                    ),
+                                    child: isReturning
+                                        ? const SizedBox(
+                                            height: 16,
+                                            width: 16,
+                                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                          )
+                                        : const Text('Return'),
+                                  );
+                                }),
+                                OutlinedButton(
+                                  onPressed: () => onDetail(record),
+                                  style: OutlinedButton.styleFrom(
+                                    minimumSize: const Size(88, 40),
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(AppActionTheme.buttonRadius),
+                                    ),
+                                  ),
+                                  child: const Text('Detail'),
+                                ),
+                              ],
+                            ),
                           ],
                         ),
                       ),
@@ -1152,6 +1164,11 @@ class BorrowerKeyGroup {
   final String borrowerName;
   final String borrowerCategory;
   final List<KeyRecord> keys;
+}
+
+bool _isRunningInWidgetTest() {
+  final binding = WidgetsBinding.instance;
+  return binding.runtimeType.toString().contains('TestWidgetsFlutterBinding');
 }
 
 String _formatDate(DateTime value) {

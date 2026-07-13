@@ -6,14 +6,29 @@ void main() {
   testWidgets(
     'Register new key screen offers Not Available as a status option',
     (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(800, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
       await tester.pumpWidget(const MaterialApp(home: RegisterNewKeyScreen()));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
 
-      final dropdowns = find.byType(DropdownButtonFormField<String>);
-      expect(dropdowns, findsWidgets);
+      final statusDropdownFinder = find.byWidgetPredicate((widget) {
+        if (widget is! DropdownButtonFormField<String>) {
+          return false;
+        }
+        final decoration = widget.decoration;
+        return decoration.labelText == 'Status';
+      });
+      expect(statusDropdownFinder, findsOneWidget);
 
-      await tester.tap(dropdowns.last);
-      await tester.pumpAndSettle();
+      await tester.tap(statusDropdownFinder);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
 
       expect(find.text('Not Available'), findsOneWidget);
     },

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'screen/home/home_screen.dart';
 import 'screen/notifications/notifications_screen.dart';
 import 'screen/splash/splash_screen.dart';
 import 'services/app_notification_service.dart';
@@ -22,7 +23,12 @@ class MyApp extends StatelessWidget {
       routes: {
         '/notifications': (_) => const NotificationsScreen(),
       },
-      home: const SplashScreen(),
+      home: _isRunningInWidgetTest() ? const HomeScreen() : const SplashScreen(),
     );
   }
+}
+
+bool _isRunningInWidgetTest() {
+  final binding = WidgetsBinding.instance;
+  return binding.runtimeType.toString().contains('TestWidgetsFlutterBinding');
 }

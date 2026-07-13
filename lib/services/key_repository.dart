@@ -996,7 +996,7 @@ class KeyRecordRepository {
     var events = snapshot.docs.map((doc) => EventLog.fromFirestore(doc)).toList();
     // Filter out any events that the user has hidden (in-app only)
     events = events.where((e) => !_hiddenEventSignatures.contains(_eventSignature(e))).toList();
-    events..sort((a, b) => b.dateTimeTaken.compareTo(a.dateTimeTaken));
+    events.sort((a, b) => b.dateTimeTaken.compareTo(a.dateTimeTaken));
 
     _eventLogs
       ..clear()

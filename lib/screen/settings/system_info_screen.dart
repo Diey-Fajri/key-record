@@ -313,7 +313,7 @@ class _BulletSection extends StatelessWidget {
                 ],
               ),
             );
-          }).toList(),
+          }),
         ],
       ),
     );

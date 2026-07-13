@@ -394,11 +394,6 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
     return _naturalCompare(a.keyName.toUpperCase(), b.keyName.toUpperCase());
   }
 
-  String _sortKey(KeyRecord record) {
-    return '${_topKeyLabel(record, _selectedNavigation)} ${record.keyId}'
-        .toLowerCase();
-  }
-
   int _naturalCompare(String a, String b) {
     final partsA = _splitNaturalParts(a);
     final partsB = _splitNaturalParts(b);

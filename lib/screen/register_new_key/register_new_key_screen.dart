@@ -215,6 +215,27 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                         },
                       ),
                     const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: _status,
+                      decoration: _inputDecoration(
+                        'Status',
+                        Icons.info_outline,
+                      ),
+                      items: _getStatusOptions()
+                          .map(
+                            (status) => DropdownMenuItem(
+                              value: status,
+                              child: Text(status),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() => _status = value);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
                     if (_category == 'Zone') ...[
                       TextFormField(
                         controller: _zoneController,
@@ -314,26 +335,6 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                       ),
                       const SizedBox(height: 12),
                     ],
-                    DropdownButtonFormField<String>(
-                      initialValue: _status,
-                      decoration: _inputDecoration(
-                        'Status',
-                        Icons.info_outline,
-                      ),
-                      items: _getStatusOptions()
-                          .map(
-                            (status) => DropdownMenuItem(
-                              value: status,
-                              child: Text(status),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (value) {
-                        if (value != null) {
-                          setState(() => _status = value);
-                        }
-                      },
-                    ),
                     const SizedBox(height: 12),
                     if (_statusRequiresDetails()) ...[
                       const Divider(),
