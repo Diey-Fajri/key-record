@@ -232,7 +232,7 @@ class KeyRecord {
   final String category;
   final Map<String, dynamic> metadata;
 
-  Map<String, dynamic> toFirestore() {
+  Map<String, dynamic> toMap() {
     return {
       'keyId': keyId,
       'zone': zone,
@@ -247,6 +247,10 @@ class KeyRecord {
       'category': category,
       'metadata': metadata,
     };
+  }
+
+  Map<String, dynamic> toFirestore() {
+    return toMap();
   }
 
   static KeyRecord fromFirestore(
@@ -531,15 +535,34 @@ class KeyRecordRepository {
       return;
     }
 
-    final targetDocId = key.docId?.trim() ?? '';
-    if (targetDocId.isNotEmpty) {
-      await _keysCollection
-          .doc(targetDocId)
-          .set(key.toFirestore(), SetOptions(merge: true));
-      return;
-    }
+    final payload = key.toMap();
+    final targetDocId = (key.docId?.trim().isNotEmpty ?? false)
+        ? key.docId!.trim()
+        : _keyDocIdForRecord(key);
 
-    await _saveKey(key);
+    debugPrint('[BEFORE WRITE] docId: $targetDocId');
+    debugPrint('[BEFORE WRITE] status: ${payload['status'] ?? ''}');
+    debugPrint('[BEFORE WRITE] borrowerName: ${payload['borrowerName'] ?? ''}');
+    debugPrint('[BEFORE WRITE] purpose: ${payload['purpose'] ?? ''}');
+
+    final targetRef = _keysCollection.doc(targetDocId);
+    await targetRef.set(payload, SetOptions(merge: true));
+
+    final verifiedSnapshot = await targetRef.get();
+    final verifiedData = verifiedSnapshot.data();
+    final verifiedStatus = verifiedData?['status']?.toString() ?? '';
+    final verifiedBorrowerName = verifiedData?['borrowerName']?.toString() ?? '';
+    final verifiedPurpose = verifiedData?['purpose']?.toString() ?? '';
+
+    debugPrint('[AFTER WRITE VERIFY] status: $verifiedStatus');
+    debugPrint('[AFTER WRITE VERIFY] borrowerName: $verifiedBorrowerName');
+    debugPrint('[AFTER WRITE VERIFY] purpose: $verifiedPurpose');
+
+    if (verifiedStatus != key.status ||
+        verifiedBorrowerName != key.borrowerName ||
+        verifiedPurpose != key.purpose) {
+      throw Exception('Firestore verification failed for key return update.');
+    }
   }
 
   // Firestore document IDs cannot contain '/'.
@@ -1326,6 +1349,24 @@ class KeyRecordRepository {
     }
   }
 
+  static KeyRecord buildReturnedKeyRecord(
+    KeyRecord existing,
+    KeyRecord incoming,
+  ) {
+    final incomingDocId = incoming.docId?.trim() ?? '';
+    return existing.copyWith(
+      docId: incomingDocId.isNotEmpty ? incomingDocId : existing.docId,
+      status: 'Available',
+      borrowerName: '',
+      icPassport: '',
+      phoneNumber: '',
+      company: '',
+      purpose: '',
+      takenAt: DateTime.now(),
+      metadata: Map<String, dynamic>.from(existing.metadata),
+    );
+  }
+
   static Future<void> returnKey(KeyRecord record) async {
     debugPrint('[RETURN START] Key: ${record.keyId}');
     
@@ -1358,15 +1399,7 @@ class KeyRecordRepository {
       final actor = resolveActor(null);
       debugPrint('[RETURN USER] $actor');
       
-      _keys[index] = _keys[index].copyWith(
-        status: 'Available',
-        borrowerName: '',
-        icPassport: '',
-        phoneNumber: '',
-        company: '',
-        purpose: '',
-        takenAt: DateTime.now(),
-      );
+      _keys[index] = buildReturnedKeyRecord(_keys[index], record);
 
       await _updateReturnEvent(record);
 
