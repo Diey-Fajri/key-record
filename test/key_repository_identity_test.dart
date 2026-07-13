@@ -3,6 +3,11 @@ import 'package:key_record/services/key_repository.dart' as repository;
 
 void main() {
   group('KeyRecordRepository identity matching', () {
+    test('resolves actor from the signed-in user without falling back to Security Admin', () {
+      expect(repository.KeyRecordRepository.resolveActor(''), isEmpty);
+      expect(repository.KeyRecordRepository.resolveActor('Alice'), 'Alice');
+    });
+
     test('matches records by logical identity when doc IDs differ', () {
       final source = repository.KeyRecord(
         docId: '',

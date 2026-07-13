@@ -34,6 +34,7 @@ class _HomeScreenState extends State<HomeScreen> {
   late final AppUpdateService _appUpdateService;
   bool _checkingUpdateFromNotification = false;
   bool _startupUpdateChecked = false;
+  final Set<String> _returningIds = <String>{};
 
   @override
   void initState() {
@@ -228,6 +229,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     onDetail: (record) => _openTakeKeyDetail(context, record),
                                     onReturn: (record) => _returnKey(context, record),
                                     onReturnAll: () => _returnAllKeys(context, borrowerGroups[index]),
+                                    returningIds: _returningIds,
                                   );
                                 },
                               );
@@ -292,6 +294,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _returnKey(BuildContext context, KeyRecord record) async {
+    final id = (record.docId?.trim().isNotEmpty ?? false)
+        ? record.docId!.trim()
+        : record.keyId.trim().toUpperCase();
+    if (mounted) {
+      setState(() => _returningIds.add(id));
+    }
     try {
       await KeyRecordRepository.returnKey(record);
     } catch (error) {
@@ -302,7 +310,12 @@ class _HomeScreenState extends State<HomeScreen> {
         SnackBar(content: Text('Failed to return key: $error')),
       );
       return;
+    } finally {
+      if (mounted) {
+        setState(() => _returningIds.remove(id));
+      }
     }
+
     if (!context.mounted) {
       return;
     }
@@ -491,7 +504,7 @@ class _HeaderSection extends StatelessWidget {
           _HeaderValue(
             icon: Icons.person_outline,
             label: 'Logged-in user',
-            value: AuthService.activeUser.isEmpty ? 'Security Admin' : AuthService.activeUser,
+            value: AuthService.activeUser.isEmpty ? 'Not signed in' : AuthService.activeUser,
           ),
           _HeaderValue(
             icon: Icons.calendar_today_outlined,
@@ -727,6 +740,7 @@ class KeyInUseCard extends StatelessWidget {
     required this.onDetail,
     required this.onReturn,
     required this.onReturnAll,
+    required this.returningIds,
     super.key,
   });
 
@@ -734,6 +748,7 @@ class KeyInUseCard extends StatelessWidget {
   final ValueChanged<KeyRecord> onDetail;
   final ValueChanged<KeyRecord> onReturn;
   final VoidCallback onReturnAll;
+  final Set<String> returningIds;
 
   @override
   Widget build(BuildContext context) {
@@ -916,7 +931,14 @@ class KeyInUseCard extends StatelessWidget {
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           FilledButton(
-                            onPressed: () => onReturn(record),
+                            onPressed: () {
+                              final id = (record.docId?.trim().isNotEmpty ?? false)
+                                  ? record.docId!.trim()
+                                  : record.keyId.trim().toUpperCase();
+                              final isReturning = returningIds.contains(id);
+                              if (isReturning) return null;
+                              return onReturn(record);
+                            },
                             style: FilledButton.styleFrom(
                               backgroundColor: AppActionTheme.success,
                               foregroundColor: Colors.white,
@@ -925,7 +947,19 @@ class KeyInUseCard extends StatelessWidget {
                                 borderRadius: BorderRadius.circular(AppActionTheme.buttonRadius),
                               ),
                             ),
-                            child: const Text('Return'),
+                            child: Builder(builder: (context) {
+                              final id = (record.docId?.trim().isNotEmpty ?? false)
+                                  ? record.docId!.trim()
+                                  : record.keyId.trim().toUpperCase();
+                              final isReturning = returningIds.contains(id);
+                              return isReturning
+                                  ? const SizedBox(
+                                      height: 16,
+                                      width: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                    )
+                                  : const Text('Return');
+                            }),
                           ),
                           OutlinedButton(
                             onPressed: () => onDetail(record),

@@ -17,6 +17,7 @@ class SmartDetailScreen extends StatefulWidget {
 
 class _SmartDetailScreenState extends State<SmartDetailScreen> {
   late KeyRecord _currentRecord;
+  bool _isBusy = false;
 
   static const List<String> _statusOptions = [
     'Available',
@@ -225,11 +226,25 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                         ),
                       ),
                       FilledButton.icon(
-                        onPressed: _canReturn
-                            ? () async => _handleAction(context, 'Returned')
+                        onPressed: _canReturn && !_isBusy
+                            ? () async {
+                                if (_isBusy) return;
+                                setState(() => _isBusy = true);
+                                try {
+                                  await _handleAction(context, 'Returned');
+                                } finally {
+                                  if (mounted) setState(() => _isBusy = false);
+                                }
+                              }
                             : null,
-                        icon: const Icon(Icons.assignment_turned_in_outlined),
-                        label: const Text('Returned'),
+                        icon: _isBusy
+                            ? const SizedBox(
+                                height: 16,
+                                width: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              )
+                            : const Icon(Icons.assignment_turned_in_outlined),
+                        label: _isBusy ? const Text('Processing...') : const Text('Returned'),
                         style: FilledButton.styleFrom(
                           backgroundColor: const Color(0xFF2E7D32),
                           foregroundColor: Colors.white,
@@ -261,11 +276,21 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                         ),
                       PopupMenuButton<String>(
                         onSelected: (value) async {
+                          if (_isBusy) {
+                            return;
+                          }
                           if (value == 'Delete Key') {
                             await _confirmDeleteKey(context);
                             return;
                           }
-                          await _handleAction(context, value);
+                          setState(() => _isBusy = true);
+                          try {
+                            await _handleAction(context, value);
+                          } finally {
+                            if (mounted) {
+                              setState(() => _isBusy = false);
+                            }
+                          }
                         },
                         itemBuilder: (context) => [
                           const PopupMenuItem(
@@ -329,6 +354,14 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
     if (action == 'Returned') {
       await KeyRecordRepository.returnKey(_currentRecord);
     } else if (action == 'Found') {
+      if (_currentRecord.status != 'Lost') {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Found is only available for Lost keys.')),
+          );
+        }
+        return;
+      }
       await KeyRecordRepository.returnKey(_currentRecord);
     } else if (action == 'Lost') {
       await KeyRecordRepository.markLost(_currentRecord);
@@ -397,11 +430,7 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
   Future<bool> _openHandoverDialog(BuildContext context) async {
     final formKey = GlobalKey<FormState>();
     final documentReportNoController = TextEditingController();
-    final handoverByController = TextEditingController(
-      text: AuthService.activeUser.isNotEmpty
-          ? AuthService.activeUser
-          : 'Security Admin',
-    );
+    final handoverByController = TextEditingController(text: AuthService.activeUser);
     final handoverDateController = TextEditingController(
       text: _formatDate(DateTime.now()),
     );
@@ -486,9 +515,7 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                         return;
                       }
 
-                      final actor = AuthService.activeUser.isNotEmpty
-                          ? AuthService.activeUser
-                          : 'Security Admin';
+                      final actor = AuthService.activeUser;
                       await KeyRecordRepository.markHandOverWithDetails(
                         _currentRecord,
                         actor: actor,
@@ -543,11 +570,7 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
           ? _readMetadata('staffName')
           : _currentRecord.borrowerName,
     );
-    final receivedByController = TextEditingController(
-      text: AuthService.activeUser.isNotEmpty
-          ? AuthService.activeUser
-          : 'Security Admin',
-    );
+    final receivedByController = TextEditingController(text: AuthService.activeUser);
     final witnessByController = TextEditingController();
     final documentNoController = TextEditingController();
 
@@ -599,9 +622,7 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                         return;
                       }
 
-                      final actor = AuthService.activeUser.isNotEmpty
-                          ? AuthService.activeUser
-                          : 'Security Admin';
+                      final actor = AuthService.activeUser;
                       await KeyRecordRepository.receiveKeyWithDetails(
                         _currentRecord,
                         actor: actor,
@@ -681,9 +702,7 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
       return;
     }
 
-    final actor = AuthService.activeUser.isNotEmpty
-        ? AuthService.activeUser
-        : 'Security Admin';
+    final actor = AuthService.activeUser;
 
     await KeyRecordRepository.deleteKey(_currentRecord, recordedBy: actor);
 
@@ -769,9 +788,7 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
       final effectiveZone = zoneController.text.trim().isEmpty
           ? _currentRecord.zone
           : zoneController.text.trim();
-      final actor = AuthService.activeUser.isEmpty
-          ? 'Security Admin'
-          : AuthService.activeUser;
+      final actor = AuthService.activeUser;
 
       try {
         await KeyRecordRepository.updateRegisteredKeyDetails(

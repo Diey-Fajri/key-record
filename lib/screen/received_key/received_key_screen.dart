@@ -33,8 +33,7 @@ class _ReceivedKeyScreenState extends State<ReceivedKeyScreen> {
   @override
   void initState() {
     super.initState();
-    _receivedByController.text =
-        AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin';
+    _receivedByController.text = AuthService.activeUser;
   }
 
   @override
@@ -260,7 +259,7 @@ class _ReceivedKeyScreenState extends State<ReceivedKeyScreen> {
       return;
     }
 
-    final actor = AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin';
+    final actor = AuthService.activeUser;
     setState(() => _isSubmitting = true);
     try {
       await KeyRecordRepository.receiveKeyWithDetails(

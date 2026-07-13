@@ -31,8 +31,7 @@ class _HandOverKeyScreenState extends State<HandOverKeyScreen> {
   @override
   void initState() {
     super.initState();
-    _handoverByController.text =
-        AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin';
+    _handoverByController.text = AuthService.activeUser;
     _keyRows.add(_HandOverKeySelectionRow());
   }
 
@@ -377,7 +376,7 @@ class _HandOverKeyScreenState extends State<HandOverKeyScreen> {
     }
 
     setState(() => _isSubmitting = true);
-    final actor = AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin';
+    final actor = AuthService.activeUser;
     final now = DateTime.now();
     try {
       for (final item in selectedItems) {

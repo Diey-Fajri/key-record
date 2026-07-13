@@ -512,9 +512,7 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
       'remarks': _remarksController.text.trim(),
     };
 
-    final recordedBy = AuthService.activeUser.isNotEmpty
-        ? AuthService.activeUser
-        : 'Security Admin';
+    final recordedBy = AuthService.activeUser;
     final finalStatus = status.isEmpty ? 'Available' : status;
 
     setState(() => _isSubmitting = true);

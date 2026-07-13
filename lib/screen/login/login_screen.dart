@@ -183,6 +183,8 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
 
     if (success) {
+      // Reset loading state before navigating so UI doesn't remain in loading when returning.
+      if (mounted) setState(() => _isLoading = false);
       final hasStoredCredentials = await AuthService.hasStoredCredentials();
       if (!mounted) return;
       if (hasStoredCredentials) {

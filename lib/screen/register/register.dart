@@ -55,8 +55,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void initState() {
     super.initState();
     _now = DateTime.now();
-    _handoverByController.text =
-        AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin';
+    _handoverByController.text = AuthService.activeUser;
     _handoverDateController.text = _formatDateOnly(_now);
     _handoverTimeController.text = _formatTimeOnly(_now);
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -523,7 +522,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       final borrower = _buildBorrower();
       final metadata = _buildTransactionMetadata(borrower.name);
-      final recordedBy = AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin';
+      final recordedBy = AuthService.activeUser;
 
       await repository.KeyRecordRepository.takeKeys(
         selectedRecords,
@@ -781,7 +780,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
     return await repository.KeyRecordRepository.saveBorrowerProfile(
       borrower,
-      recordedBy: AuthService.activeUser.isNotEmpty ? AuthService.activeUser : 'Security Admin',
+      recordedBy: AuthService.activeUser,
     );
   }
 

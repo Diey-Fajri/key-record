@@ -1,7 +1,10 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'auth_service.dart';
 
 class Borrower {
   Borrower({
@@ -96,6 +99,7 @@ class EventLog {
       'status': status,
       'lose': lose,
       'actor': actor,
+      'actorName': actor,
       'category': category,
       'level': metadata['level']?.toString() ?? '',
       'zone': metadata['zone']?.toString() ?? '',
@@ -427,6 +431,36 @@ class KeyRecordRepository {
       StreamController<List<Borrower>>.broadcast()
         ..onListen = () =>
             _savedBorrowersController.add(List.unmodifiable(_savedBorrowers));
+  // Persisted set of hidden event signatures (filtered out in-app)
+  static final Set<String> _hiddenEventSignatures = <String>{};
+  static bool _hiddenSignaturesLoaded = false;
+  static const String _kHiddenEventSignaturesKey = 'hidden_event_signatures';
+
+  static Future<void> _ensureHiddenSignaturesLoaded() async {
+    if (_hiddenSignaturesLoaded) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final list = prefs.getStringList(_kHiddenEventSignaturesKey) ?? <String>[];
+      _hiddenEventSignatures.addAll(list);
+      // Remove any matching events from the in-memory cache so they stay hidden in-app.
+      if (_hiddenEventSignatures.isNotEmpty && _eventLogs.isNotEmpty) {
+        _eventLogs.removeWhere((existing) => _hiddenEventSignatures.contains(_eventSignature(existing)));
+        _eventLogsController.add(List<EventLog>.unmodifiable(_eventLogs));
+      }
+    } catch (error) {
+      debugPrint('[KeyRepository] failed to load hidden event signatures: $error');
+    }
+    _hiddenSignaturesLoaded = true;
+  }
+
+  static Future<void> _saveHiddenSignatures() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_kHiddenEventSignaturesKey, _hiddenEventSignatures.toList());
+    } catch (error) {
+      debugPrint('[KeyRepository] failed to save hidden event signatures: $error');
+    }
+  }
 
   static FirebaseFirestore get _firestore => FirebaseFirestore.instance;
 
@@ -436,6 +470,14 @@ class KeyRecordRepository {
   static bool get _firestoreAvailable =>
       !_disableFirestore && Firebase.apps.isNotEmpty;
 
+  static String resolveActor(String? actor) {
+    final trimmed = actor?.trim() ?? '';
+    if (trimmed.isNotEmpty) {
+      return trimmed;
+    }
+    return AuthService.activeUser.trim();
+  }
+
   static CollectionReference<Map<String, dynamic>> get _keysCollection =>
       _firestore.collection('keys');
   static CollectionReference<Map<String, dynamic>> get _eventLogCollection =>
@@ -444,6 +486,9 @@ class KeyRecordRepository {
   get _notificationsCollection => _firestore.collection('notifications');
   static CollectionReference<Map<String, dynamic>>
   get _savedPersonsCollection => _firestore.collection('saved_persons');
+
+  // Track in-flight return operations to prevent duplicate processing
+  static final Set<String> _inFlightReturnKeys = <String>{};
 
   static Future<void> _saveKey(KeyRecord key) async {
     if (!_firestoreAvailable) return;
@@ -698,7 +743,7 @@ class KeyRecordRepository {
 
   static Future<bool> saveBorrowerProfile(
     Borrower borrower, {
-    String recordedBy = 'Security Admin',
+    String recordedBy = '',
   }) async {
     final normalized = Borrower(
       name: borrower.name.trim(),
@@ -721,7 +766,7 @@ class KeyRecordRepository {
     if (_firestoreAvailable) {
       await _savedPersonsCollection.doc(_savedBorrowerDocId(normalized)).set({
         ...normalized.toFirestore(),
-        'recordedBy': recordedBy,
+        'recordedBy': resolveActor(recordedBy),
         'updatedAt': FieldValue.serverTimestamp(),
         'createdAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
@@ -813,6 +858,9 @@ class KeyRecordRepository {
     Map<String, dynamic>? extraData,
   }) async {
     if (!_firestoreAvailable) return;
+    final actorValue = resolveActor(recordedBy);
+    final actorName = actorValue.isNotEmpty ? actorValue : recordedBy.trim();
+
     final payload = <String, dynamic>{
       'title': title ?? action,
       'body': body,
@@ -820,6 +868,7 @@ class KeyRecordRepository {
       'keyId': keyId,
       'category': category,
       'recordedBy': recordedBy,
+      'actorName': actorName,
       'audience': audience,
       'createdAt': FieldValue.serverTimestamp(),
       'fcmSent': false,
@@ -900,36 +949,38 @@ class KeyRecordRepository {
     }
 
     return Stream<List<EventLog>>.multi((controller) {
-      // Always show currently cached events immediately while waiting for Firestore.
-      controller.add(List<EventLog>.unmodifiable(_eventLogs));
+      // Ensure hidden signatures are loaded before streaming Firestore results.
+      _ensureHiddenSignaturesLoaded().then((_) {
+        // Always show currently cached events immediately while waiting for Firestore.
+        controller.add(List<EventLog>.unmodifiable(_eventLogs));
 
-      final localSubscription = _eventLogsController.stream.listen(
-        controller.add,
-        onError: controller.addError,
-      );
+        final localSubscription = _eventLogsController.stream.listen(
+          controller.add,
+          onError: controller.addError,
+        );
 
-      final subscription = _eventLogCollection.snapshots().listen(
-        (snapshot) {
-          final events =
-              snapshot.docs.map((doc) => EventLog.fromFirestore(doc)).toList()
-                ..sort((a, b) => b.dateTimeTaken.compareTo(a.dateTimeTaken));
+        final subscription = _eventLogCollection.snapshots().listen((snapshot) async {
+          final events = snapshot.docs.map((doc) => EventLog.fromFirestore(doc)).toList();
+          // Filter out any events the user has hidden.
+          final visible = events.where((e) => !_hiddenEventSignatures.contains(_eventSignature(e))).toList()
+            ..sort((a, b) => b.dateTimeTaken.compareTo(a.dateTimeTaken));
+
           _eventLogs
             ..clear()
-            ..addAll(events);
+            ..addAll(visible);
           final latest = List<EventLog>.unmodifiable(_eventLogs);
           _eventLogsController.add(latest);
           controller.add(latest);
-        },
-        onError: (_) {
+        }, onError: (_) {
           // Do not break the UI stream; continue showing the latest cached events.
           controller.add(List<EventLog>.unmodifiable(_eventLogs));
-        },
-      );
+        });
 
-      controller.onCancel = () {
-        subscription.cancel();
-        localSubscription.cancel();
-      };
+        controller.onCancel = () {
+          subscription.cancel();
+          localSubscription.cancel();
+        };
+      });
     });
   }
 
@@ -939,10 +990,13 @@ class KeyRecordRepository {
       return;
     }
 
+    await _ensureHiddenSignaturesLoaded();
+
     final snapshot = await _eventLogCollection.get();
-    final events =
-        snapshot.docs.map((doc) => EventLog.fromFirestore(doc)).toList()
-          ..sort((a, b) => b.dateTimeTaken.compareTo(a.dateTimeTaken));
+    var events = snapshot.docs.map((doc) => EventLog.fromFirestore(doc)).toList();
+    // Filter out any events that the user has hidden (in-app only)
+    events = events.where((e) => !_hiddenEventSignatures.contains(_eventSignature(e))).toList();
+    events..sort((a, b) => b.dateTimeTaken.compareTo(a.dateTimeTaken));
 
     _eventLogs
       ..clear()
@@ -970,6 +1024,10 @@ class KeyRecordRepository {
     final signatureSet = eventsToClear
         .map((event) => _eventSignature(event))
         .toSet();
+    // Persist signatures so filtered events remain hidden across refreshes (app-only)
+    await _ensureHiddenSignaturesLoaded();
+    _hiddenEventSignatures.addAll(signatureSet);
+    await _saveHiddenSignatures();
 
     _eventLogs.removeWhere((existing) {
       final hasIdMatch = existing.id != null && idSet.contains(existing.id);
@@ -1160,7 +1218,7 @@ class KeyRecordRepository {
     List<KeyRecord> keys,
     Borrower borrower,
     DateTime takenAt, {
-    String recordedBy = 'Security Admin',
+    String recordedBy = '',
     String transactionStatus = 'In Use',
     Map<String, dynamic>? metadata,
   }) async {
@@ -1272,61 +1330,81 @@ class KeyRecordRepository {
     if (index == -1) {
       return;
     }
+    // Determine stable id for guarding concurrent returns: prefer docId, fallback to keyId
+    final id = (record.docId?.trim().isNotEmpty ?? false)
+        ? record.docId!.trim()
+        : record.keyId.trim().toUpperCase();
 
-    _keys[index] = _keys[index].copyWith(
-      status: 'Available',
-      borrowerName: '',
-      icPassport: '',
-      phoneNumber: '',
-      company: '',
-      purpose: '',
-      takenAt: DateTime.now(),
-    );
-
-    await _updateReturnEvent(record);
-
-    var firestoreWriteFailed = false;
-    if (_firestoreAvailable) {
-      try {
-        await _persistKeyToFirestore(_keys[index]);
-        await _saveNotification(
-          action: 'Returned',
-          title: 'Key Returned',
-          body: _notificationBodyForReturnedKey(
-            key: _keys[index],
-            borrowerName: record.borrowerName,
-            purpose: record.purpose,
-          ),
-          keyId: _keys[index].keyId,
-          category: _keys[index].category,
-          recordedBy: 'Security Admin',
-          audience: 'allMembers',
-          type: 'return_key',
-          extraData: {
-            'borrowerName': record.borrowerName,
-            'purpose': record.purpose,
-            'level': _normalizeMetadataField(_keys[index].metadata['level']),
-            'masterKey': _normalizeMetadataField(_keys[index].metadata['masterKey']),
-            'lotKey': _normalizeMetadataField(_keys[index].metadata['lotKey']),
-            'rollerLevelNo': _normalizeMetadataField(_keys[index].metadata['rollerLevelNo']),
-            'rollerNumber': _normalizeMetadataField(_keys[index].metadata['rollerNumber']),
-            'zone': _keys[index].zone,
-            'keyName': _keys[index].keyName,
-          },
-        );
-      } catch (_) {
-        firestoreWriteFailed = true;
-      }
-
-      await refreshKeysFromFirestore();
-      if (firestoreWriteFailed) {
-        throw Exception(
-          'Failed to update key return in Firestore. Please retry.',
-        );
-      }
+    if (_inFlightReturnKeys.contains(id)) {
+      debugPrint('[KeyRepository] returnKey ignored: already in-flight for $id');
+      return;
     }
 
-    _notifyKeys();
+    // If key is already available locally, skip processing (idempotent)
+    if (_keys[index].status.trim().toLowerCase() == 'available') {
+      debugPrint('[KeyRepository] returnKey ignored: key already available ${record.keyId}');
+      return;
+    }
+
+    _inFlightReturnKeys.add(id);
+    try {
+      _keys[index] = _keys[index].copyWith(
+        status: 'Available',
+        borrowerName: '',
+        icPassport: '',
+        phoneNumber: '',
+        company: '',
+        purpose: '',
+        takenAt: DateTime.now(),
+      );
+
+      await _updateReturnEvent(record);
+
+      var firestoreWriteFailed = false;
+      if (_firestoreAvailable) {
+        try {
+          await _persistKeyToFirestore(_keys[index]);
+          await _saveNotification(
+            action: 'Returned',
+            title: 'Key Returned',
+            body: _notificationBodyForReturnedKey(
+              key: _keys[index],
+              borrowerName: record.borrowerName,
+              purpose: record.purpose,
+            ),
+            keyId: _keys[index].keyId,
+            category: _keys[index].category,
+            recordedBy: resolveActor(null),
+            audience: 'allMembers',
+            type: 'return_key',
+            extraData: {
+              'borrowerName': record.borrowerName,
+              'purpose': record.purpose,
+              'level': _normalizeMetadataField(_keys[index].metadata['level']),
+              'masterKey': _normalizeMetadataField(_keys[index].metadata['masterKey']),
+              'lotKey': _normalizeMetadataField(_keys[index].metadata['lotKey']),
+              'rollerLevelNo': _normalizeMetadataField(_keys[index].metadata['rollerLevelNo']),
+              'rollerNumber': _normalizeMetadataField(_keys[index].metadata['rollerNumber']),
+              'zone': _keys[index].zone,
+              'keyName': _keys[index].keyName,
+            },
+          );
+        } catch (_) {
+          firestoreWriteFailed = true;
+        }
+
+        await refreshKeysFromFirestore();
+        if (firestoreWriteFailed) {
+          throw Exception(
+            'Failed to update key return in Firestore. Please retry.',
+          );
+        }
+      }
+
+      _notifyKeys();
+    } finally {
+      _inFlightReturnKeys.remove(id);
+    }
   }
 
   static Future<void> markNoReturn(KeyRecord record) async {
@@ -1349,7 +1427,7 @@ class KeyRecordRepository {
       dateTimeReturned: null,
       status: 'No Return',
       lose: false,
-      actor: 'Security Admin',
+      actor: resolveActor(null),
     );
     await _appendEvent(event);
 
@@ -1363,7 +1441,7 @@ class KeyRecordRepository {
               'Key ${_keys[index].zone}/${_keys[index].keyName} is now marked No Return.',
           keyId: _keys[index].keyId,
           category: _keys[index].category,
-          recordedBy: 'Security Admin',
+          recordedBy: resolveActor(null),
           audience: 'allMembers',
           type: 'key_no_return',
         );
@@ -1395,7 +1473,7 @@ class KeyRecordRepository {
       dateTimeReturned: null,
       status: 'At Maintenance',
       lose: false,
-      actor: 'Security Admin',
+      actor: resolveActor(null),
     );
     await _appendEvent(event);
 
@@ -1409,7 +1487,7 @@ class KeyRecordRepository {
               'Key ${_keys[index].zone}/${_keys[index].keyName} is now under maintenance.',
           keyId: _keys[index].keyId,
           category: _keys[index].category,
-          recordedBy: 'Security Admin',
+          recordedBy: resolveActor(null),
           audience: 'allMembers',
           type: 'at_maintenance',
         );
@@ -1426,7 +1504,7 @@ class KeyRecordRepository {
       record,
       status: 'Lost',
       action: 'Lost',
-      actor: 'Security Admin',
+      actor: resolveActor(null),
       lose: true,
     );
   }
@@ -1436,7 +1514,7 @@ class KeyRecordRepository {
       record,
       status: 'Damaged',
       action: 'Damaged',
-      actor: 'Security Admin',
+      actor: resolveActor(null),
     );
   }
 
@@ -1469,7 +1547,7 @@ class KeyRecordRepository {
       dateTimeReturned: DateTime.now(),
       status: 'Available',
       lose: false,
-      actor: 'Security Admin',
+      actor: resolveActor(null),
       category: _keys[index].category,
       metadata: record.metadata,
     );
@@ -1485,7 +1563,7 @@ class KeyRecordRepository {
               'Key ${_keys[index].zone}/${_keys[index].keyName} has been replaced and is now Available.',
           keyId: _keys[index].keyId,
           category: _keys[index].category,
-          recordedBy: 'Security Admin',
+          recordedBy: resolveActor(null),
           audience: 'allMembers',
           type: 'replaced',
         );
@@ -1499,13 +1577,13 @@ class KeyRecordRepository {
 
   static Future<void> markHandOver(
     KeyRecord record, {
-    String actor = 'Security Admin',
+    String actor = '',
   }) async {
     await _updateKeyStatus(
       record,
       status: 'Hand Over',
       action: 'Hand Over',
-      actor: actor,
+      actor: resolveActor(actor),
     );
   }
 
@@ -1539,7 +1617,7 @@ class KeyRecordRepository {
       dateTimeReturned: null,
       status: 'Hand Over',
       lose: false,
-      actor: actor,
+      actor: resolveActor(actor),
       category: _keys[index].category,
       metadata: mergedMetadata,
     );
@@ -1552,10 +1630,10 @@ class KeyRecordRepository {
           action: 'Hand Over',
           title: 'Key Handed Over',
           body:
-              'Key ${_keys[index].zone}/${_keys[index].keyName} is now marked Hand Over by $actor.',
+              'Key ${_keys[index].zone}/${_keys[index].keyName} is now marked Hand Over by ${resolveActor(actor)}.',
           keyId: _keys[index].keyId,
           category: _keys[index].category,
-          recordedBy: actor,
+          recordedBy: resolveActor(actor),
           audience: 'allMembers',
           type: 'hand_over',
         );
@@ -1605,7 +1683,7 @@ class KeyRecordRepository {
       dateTimeReturned: DateTime.now(),
       status: 'Available',
       lose: false,
-      actor: actor,
+      actor: resolveActor(actor),
       category: previous.category,
       metadata: mergedMetadata,
     );
@@ -1621,7 +1699,7 @@ class KeyRecordRepository {
               'Key ${previous.zone}/${previous.keyName} has been received and is now Available.',
           keyId: previous.keyId,
           category: previous.category,
-          recordedBy: actor,
+          recordedBy: resolveActor(actor),
           audience: 'allMembers',
           type: 'receive_key',
         );
@@ -1659,7 +1737,7 @@ class KeyRecordRepository {
       dateTimeReturned: null,
       status: status,
       lose: lose,
-      actor: actor,
+      actor: resolveActor(actor),
     );
     await _appendEvent(event);
 
@@ -1673,11 +1751,11 @@ class KeyRecordRepository {
             status: status,
             keyName: _keys[index].keyName,
             zone: _keys[index].zone,
-            actor: actor,
+            actor: resolveActor(actor),
           ),
           keyId: _keys[index].keyId,
           category: _keys[index].category,
-          recordedBy: actor,
+          recordedBy: resolveActor(actor),
           audience: 'allMembers',
           type: _notificationTypeForStatus(status, action),
         );
@@ -1716,9 +1794,13 @@ class KeyRecordRepository {
   }) {
     switch (status) {
       case 'Lost':
-        return 'Security Admin $actor marked $zone/$keyName as Lost.';
+        return actor.isNotEmpty
+            ? '$actor marked $zone/$keyName as Lost.'
+            : 'The key $zone/$keyName was marked as Lost.';
       case 'Damaged':
-        return 'Security Admin $actor marked $zone/$keyName as Damaged.';
+        return actor.isNotEmpty
+            ? '$actor marked $zone/$keyName as Damaged.'
+            : 'The key $zone/$keyName was marked as Damaged.';
       case 'Available':
         return 'Key $zone/$keyName is now Available.';
       case 'In Use':
@@ -1869,7 +1951,7 @@ class KeyRecordRepository {
       dateTimeReturned: returnedAt,
       status: 'Returned',
       lose: false,
-      actor: 'Security Admin',
+      actor: resolveActor(null),
       category: record.category,
       metadata: record.metadata,
     );
@@ -2086,7 +2168,7 @@ class KeyRecordRepository {
 
   static Future<void> deleteKey(
     KeyRecord record, {
-    String recordedBy = 'Security Admin',
+    String recordedBy = '',
   }) async {
     final index = _indexForRecord(record);
     if (index == -1) {
@@ -2109,7 +2191,7 @@ class KeyRecordRepository {
       dateTimeReturned: null,
       status: 'Deleted',
       lose: false,
-      actor: recordedBy,
+      actor: resolveActor(recordedBy),
       category: deleted.category,
       metadata: deleted.metadata,
     );

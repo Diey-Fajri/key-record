@@ -13,6 +13,7 @@ class TakeKeyDetailScreen extends StatefulWidget {
 
 class _TakeKeyDetailScreenState extends State<TakeKeyDetailScreen> {
   late KeyRecord _record;
+  bool _isReturning = false;
 
   @override
   void initState() {
@@ -55,18 +56,33 @@ class _TakeKeyDetailScreenState extends State<TakeKeyDetailScreen> {
             ...fields,
             if (_record.status == 'In Use' || _record.status == 'Hand Over')
               FilledButton.icon(
-                onPressed: () async {
-                  final messenger = ScaffoldMessenger.of(context);
-                  final navigator = Navigator.of(context);
-                  await KeyRecordRepository.returnKey(_record);
-                  if (!mounted) return;
-                  messenger.showSnackBar(
-                    const SnackBar(content: Text('Key returned and available now.')),
-                  );
-                  navigator.pop();
-                },
-                icon: const Icon(Icons.assignment_turned_in_outlined),
-                label: const Text('Return Key'),
+                onPressed: _isReturning
+                    ? null
+                    : () async {
+                        setState(() => _isReturning = true);
+                        try {
+                          final messenger = ScaffoldMessenger.of(context);
+                          final navigator = Navigator.of(context);
+                          await KeyRecordRepository.returnKey(_record);
+                          if (!mounted) return;
+                          messenger.showSnackBar(
+                            const SnackBar(content: Text('Key returned and available now.')),
+                          );
+                          navigator.pop();
+                        } catch (_) {
+                          // errors handled in repository or caller
+                        } finally {
+                          if (mounted) setState(() => _isReturning = false);
+                        }
+                      },
+                icon: _isReturning
+                    ? const SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.assignment_turned_in_outlined),
+                label: _isReturning ? const Text('Returning...') : const Text('Return Key'),
                 style: FilledButton.styleFrom(
                   backgroundColor: const Color(0xFF2E7D32),
                   foregroundColor: Colors.white,

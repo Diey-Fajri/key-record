@@ -314,14 +314,58 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
   }
 
   int _compareRecords(KeyRecord a, KeyRecord b) {
-    final first = _sortKey(a);
-    final second = _sortKey(b);
-    return first.compareTo(second);
+    final topA = _topKeyLabel(a, _selectedNavigation).toUpperCase();
+    final topB = _topKeyLabel(b, _selectedNavigation).toUpperCase();
+    final byTop = _naturalCompare(topA, topB);
+    if (byTop != 0) return byTop;
+
+    // If top labels are equal (same folder), compare keyId naturally,
+    // fall back to keyName if keyId is not decisive.
+    final byKeyId = _naturalCompare(a.keyId.toUpperCase(), b.keyId.toUpperCase());
+    if (byKeyId != 0) return byKeyId;
+    return _naturalCompare(a.keyName.toUpperCase(), b.keyName.toUpperCase());
   }
 
   String _sortKey(KeyRecord record) {
     return '${_topKeyLabel(record, _selectedNavigation)} ${record.keyId}'
         .toLowerCase();
+  }
+
+  int _naturalCompare(String a, String b) {
+    final partsA = _splitNaturalParts(a);
+    final partsB = _splitNaturalParts(b);
+    final minLength = partsA.length < partsB.length ? partsA.length : partsB.length;
+
+    for (var i = 0; i < minLength; i++) {
+      final left = partsA[i];
+      final right = partsB[i];
+
+      final leftNumber = int.tryParse(left);
+      final rightNumber = int.tryParse(right);
+      if (leftNumber != null && rightNumber != null) {
+        final numberCompare = leftNumber.compareTo(rightNumber);
+        if (numberCompare != 0) {
+          return numberCompare;
+        }
+        continue;
+      }
+
+      final textCompare = left.toUpperCase().compareTo(right.toUpperCase());
+      if (textCompare != 0) {
+        return textCompare;
+      }
+    }
+
+    return partsA.length.compareTo(partsB.length);
+  }
+
+  List<String> _splitNaturalParts(String input) {
+    final matches = RegExp(r'\d+|[A-Za-z]+').allMatches(input);
+    if (matches.isEmpty) {
+      final fallback = input.trim();
+      return fallback.isEmpty ? const <String>[] : <String>[fallback];
+    }
+    return matches.map((match) => match.group(0) ?? '').toList(growable: false);
   }
 
   String _recordLevel(KeyRecord record) {
