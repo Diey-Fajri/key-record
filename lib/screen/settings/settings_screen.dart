@@ -6,6 +6,8 @@ import '../../services/app_update_service.dart';
 import '../../services/key_repository.dart';
 import '../../widget/app_update_dialog.dart';
 import '../login/login_screen.dart';
+import 'about_screen.dart';
+import 'system_info_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -284,6 +286,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ? 'Validating config...'
                             : 'Validate Update Config',
                       ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFE0E5E8)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'System',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                    const SizedBox(height: 10),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(builder: (_) => const AboutScreen()),
+                            );
+                          },
+                          icon: const Icon(Icons.info_outline),
+                          label: const Text('About'),
+                        ),
+                        const SizedBox(height: 8),
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(builder: (_) => const SystemInfoScreen()),
+                            );
+                          },
+                          icon: const Icon(Icons.build_circle_outlined),
+                          label: const Text('System Info'),
+                        ),
+                      ],
                     ),
                   ],
                 ),

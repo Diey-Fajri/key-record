@@ -118,7 +118,30 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF263238),
         foregroundColor: Colors.white,
-        title: const Text('Key Record'),
+        toolbarHeight: 92,
+        titleSpacing: 16,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text(
+              'Key Record',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+              ),
+            ),
+            SizedBox(height: 2),
+            Text(
+              'Unit Kawalan CCTV',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFFE0E5E8),
+              ),
+            ),
+          ],
+        ),
         actions: [
           IconButton(
             tooltip: 'Settings',

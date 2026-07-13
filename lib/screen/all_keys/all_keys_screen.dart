@@ -76,166 +76,225 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
         foregroundColor: Colors.white,
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF1F2A30), Color(0xFF2F4550)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Navigation',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
+        child: StreamBuilder<List<KeyRecord>>(
+          stream: KeyRecordRepository.watchAllKeys(),
+          builder: (context, snapshot) {
+            final allKeys = snapshot.data ?? const <KeyRecord>[];
+            final stats = _buildStatistics(allKeys);
+            final keys = _filteredKeys(allKeys);
+
+            return Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF1F2A30), Color(0xFF2F4550)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
                       ),
+                      borderRadius: BorderRadius.circular(14),
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Choose a category button, then filter by level.',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.85),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: _navigationItems.map((item) {
-                  final selected = item == _selectedNavigation;
-                  return FilledButton(
-                    onPressed: () {
-                      setState(() {
-                        _selectedNavigation = item;
-                        _selectedLevel = 'All';
-                      });
-                    },
-                    style: FilledButton.styleFrom(
-                      backgroundColor: selected
-                          ? const Color(0xFF263238)
-                          : Colors.white,
-                      foregroundColor: selected
-                          ? Colors.white
-                          : const Color(0xFF263238),
-                      side: BorderSide(
-                        color: selected
-                            ? const Color(0xFF263238)
-                            : const Color(0xFFCFD8DC),
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(100),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 11,
-                      ),
-                    ),
-                    child: Text(item),
-                  );
-                }).toList(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            if (_navigationUsesLevel) ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Level',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: DropdownButtonFormField<String>(
-                  initialValue: _selectedLevel,
-                  decoration: InputDecoration(
-                    filled: true,
-                    fillColor: Colors.white,
-                    prefixIcon: const Icon(Icons.stairs_outlined),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  items: _levelOptions
-                      .map(
-                        (level) => DropdownMenuItem(
-                          value: level,
-                          child: Text(_displayLevelLabel(level)),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Navigation',
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      )
-                      .toList(),
-                  onChanged: (value) {
-                    if (value != null) {
-                      setState(() => _selectedLevel = value);
-                    }
-                  },
-                ),
-              ),
-            ],
-            const SizedBox(height: 12),
-            Expanded(
-              child: StreamBuilder<List<KeyRecord>>(
-                stream: KeyRecordRepository.watchAllKeys(),
-                builder: (context, snapshot) {
-                  final keys = _filteredKeys(snapshot.data ?? const []);
-                  if (snapshot.connectionState == ConnectionState.waiting &&
-                      keys.isEmpty) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-
-                  if (keys.isEmpty) {
-                    return const Center(
-                      child: Text('No key records for this selection.'),
-                    );
-                  }
-
-                  final grouped = _groupByLevel(keys);
-                  final levelSections = _selectedLevel == 'All'
-                      ? grouped.entries.toList()
-                      : grouped.entries
-                            .where((entry) => entry.key == _selectedLevel)
-                            .toList();
-
-                  return ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                    itemCount: levelSections.length,
-                    itemBuilder: (context, index) {
-                      final section = levelSections[index];
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 14),
-                        child: _LevelSection(
-                          levelLabel: section.key,
-                          records: section.value,
+                        const SizedBox(height: 6),
+                        Text(
+                          'Choose a category button, then filter by level.',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Colors.white.withValues(alpha: 0.85),
+                          ),
                         ),
+                      ],
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _navigationItems.map((item) {
+                      final selected = item == _selectedNavigation;
+                      return FilledButton(
+                        onPressed: () {
+                          setState(() {
+                            _selectedNavigation = item;
+                            _selectedLevel = 'All';
+                          });
+                        },
+                        style: FilledButton.styleFrom(
+                          backgroundColor: selected
+                              ? const Color(0xFF263238)
+                              : Colors.white,
+                          foregroundColor: selected
+                              ? Colors.white
+                              : const Color(0xFF263238),
+                          side: BorderSide(
+                            color: selected
+                                ? const Color(0xFF263238)
+                                : const Color(0xFFCFD8DC),
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(100),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 11,
+                          ),
+                        ),
+                        child: Text(item),
                       );
-                    },
-                  );
-                },
-              ),
-            ),
-          ],
+                    }).toList(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFE0E5E8)),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x14000000),
+                          blurRadius: 8,
+                          offset: Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _StatTile(
+                            label: 'Total',
+                            value: stats['total'] ?? 0,
+                            accentColor: const Color(0xFF1E3A5F),
+                          ),
+                        ),
+                        Container(width: 1, height: 40, color: const Color(0xFFE4E9EE)),
+                        Expanded(
+                          child: _StatTile(
+                            label: 'In Use',
+                            value: stats['inUse'] ?? 0,
+                            accentColor: const Color(0xFF00695C),
+                          ),
+                        ),
+                        Container(width: 1, height: 40, color: const Color(0xFFE4E9EE)),
+                        Expanded(
+                          child: _StatTile(
+                            label: 'Available',
+                            value: stats['available'] ?? 0,
+                            accentColor: const Color(0xFF2E7D32),
+                          ),
+                        ),
+                        Container(width: 1, height: 40, color: const Color(0xFFE4E9EE)),
+                        Expanded(
+                          child: _StatTile(
+                            label: 'Not Available',
+                            value: stats['notAvailable'] ?? 0,
+                            accentColor: const Color(0xFFEF6C00),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (_navigationUsesLevel) ...[
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Level',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: DropdownButtonFormField<String>(
+                      initialValue: _selectedLevel,
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: Colors.white,
+                        prefixIcon: const Icon(Icons.stairs_outlined),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      items: _levelOptions
+                          .map(
+                            (level) => DropdownMenuItem(
+                              value: level,
+                              child: Text(_displayLevelLabel(level)),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() => _selectedLevel = value);
+                        }
+                      },
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Expanded(
+                  child: () {
+                    if (snapshot.connectionState == ConnectionState.waiting &&
+                        keys.isEmpty) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    if (keys.isEmpty) {
+                      return const Center(
+                        child: Text('No key records for this selection.'),
+                      );
+                    }
+
+                    final grouped = _groupByLevel(keys);
+                    final levelSections = _selectedLevel == 'All'
+                        ? grouped.entries.toList()
+                        : grouped.entries
+                              .where((entry) => entry.key == _selectedLevel)
+                              .toList();
+
+                    return ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      itemCount: levelSections.length,
+                      itemBuilder: (context, index) {
+                        final section = levelSections[index];
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 14),
+                          child: _LevelSection(
+                            levelLabel: section.key,
+                            records: section.value,
+                          ),
+                        );
+                      },
+                    );
+                  }(),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -289,6 +348,15 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
     }
 
     return true;
+  }
+
+  Map<String, int> _buildStatistics(List<KeyRecord> keys) {
+    return {
+      'total': keys.length,
+      'inUse': keys.where((record) => record.status == 'In Use').length,
+      'available': keys.where((record) => record.status == 'Available').length,
+      'notAvailable': keys.where((record) => record.status == 'Not Available').length,
+    };
   }
 
   Map<String, List<KeyRecord>> _groupByLevel(List<KeyRecord> keys) {
@@ -470,6 +538,53 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
       return cleanValue;
     }
     return cleanLevel.isNotEmpty ? cleanLevel : 'Unnamed Key';
+  }
+}
+
+class _StatTile extends StatelessWidget {
+  const _StatTile({
+    required this.label,
+    required this.value,
+    required this.accentColor,
+  });
+
+  final String label;
+  final int value;
+  final Color accentColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF607D8B),
+            ),
+          ),
+          const SizedBox(height: 2),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 250),
+            child: Text(
+              '$value',
+              key: ValueKey('$label-$value'),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                color: accentColor,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
