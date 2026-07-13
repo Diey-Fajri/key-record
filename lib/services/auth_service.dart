@@ -44,6 +44,7 @@ class AuthService {
         }
         try {
           await NotificationService.subscribeToSecurityTopic();
+          await NotificationService.registerCurrentDeviceToken();
         } catch (error) {
           debugPrint('Failed to subscribe to security_all topic: $error');
         }
@@ -149,6 +150,7 @@ class AuthService {
           if (_authenticated) {
             try {
               await NotificationService.subscribeToSecurityTopic();
+              await NotificationService.registerCurrentDeviceToken();
             } catch (error) {
               debugPrint('Failed to subscribe to security_all topic: $error');
             }
@@ -266,6 +268,7 @@ class AuthService {
     if (_authenticated) {
       try {
         await NotificationService.subscribeToSecurityTopic();
+        await NotificationService.registerCurrentDeviceToken();
       } catch (error) {
         debugPrint('Failed to subscribe to security_all topic: $error');
       }
@@ -324,6 +327,7 @@ class AuthService {
     }
     try {
       await NotificationService.unsubscribeFromSecurityTopic();
+      await NotificationService.unregisterCurrentDeviceToken();
     } catch (error) {
       debugPrint('Failed to unsubscribe from security_all topic: $error');
     }

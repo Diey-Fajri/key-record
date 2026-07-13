@@ -19,6 +19,55 @@ admin.initializeApp({
 const db = admin.firestore();
 const messaging = admin.messaging();
 const topicName = 'security_all';
+const tokensCollectionName = 'fcmTokens';
+
+function buildNotificationMessage({ notificationId, title, body, type, createdAt }) {
+  return {
+    notification: { title, body },
+    data: {
+      notificationId,
+      type,
+      createdAt,
+    },
+    android: {
+      priority: 'high',
+      notification: {
+        channelId: 'security_alerts',
+        sound: 'default',
+      },
+    },
+    apns: {
+      payload: {
+        aps: {
+          sound: 'default',
+        },
+      },
+    },
+  };
+}
+
+function extractActiveTokens(snapshotDocs) {
+  return snapshotDocs
+    .map((doc) => {
+      if (!doc || typeof doc.data !== 'function') {
+        return null;
+      }
+
+      const data = doc.data();
+      if (!data || data.active !== true) {
+        return null;
+      }
+
+      const token = typeof data.token === 'string' ? data.token.trim() : '';
+      return token || null;
+    })
+    .filter(Boolean);
+}
+
+async function getActiveTokens() {
+  const snapshot = await db.collection(tokensCollectionName).where('active', '==', true).get();
+  return extractActiveTokens(snapshot.docs);
+}
 
 async function sendNotification(doc) {
   const data = doc.data();
@@ -38,33 +87,31 @@ async function sendNotification(doc) {
     ? data.createdAt.toDate().toISOString()
     : (data.createdAt ? String(data.createdAt) : new Date().toISOString());
 
-  const message = {
-    topic: topicName,
-    notification: { title, body },
-    data: {
-      notificationId: doc.id,
-      type,
-      createdAt,
-    },
-    android: {
-      priority: 'high',
-      notification: {
-        channelId: 'security_alerts',
-        sound: 'default',
-      },
-    },
-    apns: {
-      payload: {
-        aps: {
-          sound: 'default',
-        },
-      },
-    },
-  };
+  const message = buildNotificationMessage({
+    notificationId: doc.id,
+    title,
+    body,
+    type,
+    createdAt,
+  });
 
   try {
-    const response = await messaging.send(message);
-    console.log(`FCM sent for ${doc.id}:`, response);
+    const tokens = await getActiveTokens();
+
+    if (tokens.length > 0) {
+      const multicastMessage = {
+        tokens,
+        ...message,
+      };
+      const response = await messaging.sendEachForMulticast(multicastMessage);
+      console.log(`FCM multicast sent for ${doc.id}:`, response);
+    } else {
+      const response = await messaging.send({
+        ...message,
+        topic: topicName,
+      });
+      console.log(`FCM topic fallback sent for ${doc.id}:`, response);
+    }
 
     await doc.ref.update({
       fcmSent: true,
@@ -99,11 +146,21 @@ async function startListener() {
     });
 }
 
-(async function main() {
-  try {
-    await startListener();
-  } catch (error) {
-    console.error('Server startup failed:', error);
-    process.exit(1);
-  }
-})();
+if (require.main === module) {
+  (async function main() {
+    try {
+      await startListener();
+    } catch (error) {
+      console.error('Server startup failed:', error);
+      process.exit(1);
+    }
+  })();
+}
+
+module.exports = {
+  buildNotificationMessage,
+  extractActiveTokens,
+  getActiveTokens,
+  sendNotification,
+  startListener,
+};

@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
@@ -14,6 +16,7 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
   static final FirebaseMessaging _messaging = FirebaseMessaging.instance;
   static late final GlobalKey<NavigatorState> _navigatorKey;
+  static String? _lastRegisteredToken;
 
   static const String _channelId = 'security_alerts';
   static const String _channelName = 'Security Alerts';
@@ -41,6 +44,7 @@ class NotificationService {
 
     await _requestPermission();
     await _configureFirebaseMessagingHandlers();
+    await registerCurrentDeviceToken();
   }
 
   static Future<void> _setupAndroidNotificationChannel() async {
@@ -74,6 +78,9 @@ class NotificationService {
   static Future<void> _configureFirebaseMessagingHandlers() async {
     FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
     FirebaseMessaging.onMessageOpenedApp.listen(_handleMessageOpenedApp);
+    _messaging.onTokenRefresh.listen((token) async {
+      await registerCurrentDeviceToken(token: token);
+    });
 
     FirebaseMessaging.onBackgroundMessage(_firebaseBackgroundMessageHandler);
   }
@@ -154,6 +161,60 @@ class NotificationService {
 
   static Future<String?> getToken() async {
     return await _messaging.getToken();
+  }
+
+  static Future<void> registerCurrentDeviceToken({String? token}) async {
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      return;
+    }
+
+    final activeToken = token ?? await _messaging.getToken();
+    if (activeToken == null || activeToken.trim().isEmpty) {
+      return;
+    }
+
+    final previousToken = _lastRegisteredToken;
+    if (previousToken != null && previousToken != activeToken) {
+      await FirebaseFirestore.instance.collection('fcmTokens').doc(previousToken).set(
+        {
+          'active': false,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+    }
+
+    _lastRegisteredToken = activeToken;
+
+    final user = FirebaseAuth.instance.currentUser;
+    await FirebaseFirestore.instance.collection('fcmTokens').doc(activeToken).set(
+      {
+        'token': activeToken,
+        'active': true,
+        'userId': user?.uid,
+        'userEmail': user?.email,
+        'platform': Platform.operatingSystem,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'createdAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+  }
+
+  static Future<void> unregisterCurrentDeviceToken() async {
+    final token = _lastRegisteredToken;
+    if (token == null || token.trim().isEmpty) {
+      return;
+    }
+
+    await FirebaseFirestore.instance.collection('fcmTokens').doc(token).set(
+      {
+        'active': false,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+    _lastRegisteredToken = null;
   }
 
   static void _navigateToNotificationsScreen(Map<String, dynamic> data) {
