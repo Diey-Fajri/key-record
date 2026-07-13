@@ -357,15 +357,33 @@ class _HomeScreenState extends State<HomeScreen> {
     final id = (record.docId?.trim().isNotEmpty ?? false)
         ? record.docId!.trim()
         : record.keyId.trim().toUpperCase();
-    debugPrint('[ACTION START] Return Key: ${record.keyId}');
+    
+    // Detailed debug log BEFORE repository call
+    debugPrint('[HOME RETURN START]');
+    debugPrint('  keyId: ${record.keyId}');
+    debugPrint('  docId: ${record.docId}');
+    debugPrint('  id (resolved): $id');
+    debugPrint('  status: ${record.status}');
+    debugPrint('  borrower: ${record.borrowerName}');
+    debugPrint('  purpose: ${record.purpose}');
+    debugPrint('  category: ${record.category}');
+    debugPrint('  zone: ${record.zone}');
+    debugPrint('  keyName: ${record.keyName}');
+    debugPrint('  Record object toString: $record');
+    
     if (mounted) {
       setState(() => _returningIds.add(id));
     }
     try {
+      debugPrint('[HOME RETURN CALLING REPOSITORY] Calling KeyRecordRepository.returnKey()');
       await KeyRecordRepository.returnKey(record);
-      debugPrint('[ACTION SUCCESS] Return Key: ${record.keyId}');
+      debugPrint('[HOME RETURN FINISHED]');
+      debugPrint('  keyId: ${record.keyId}');
+      debugPrint('  Result: Repository call completed successfully');
     } catch (error) {
-      debugPrint('[ACTION FAILED] Return Key: ${record.keyId}, Error: $error');
+      debugPrint('[HOME RETURN ERROR] Failed to return key');
+      debugPrint('  keyId: ${record.keyId}');
+      debugPrint('  Error: $error');
       if (!context.mounted) {
         return;
       }

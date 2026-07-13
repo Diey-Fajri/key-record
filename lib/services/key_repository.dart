@@ -1327,28 +1327,37 @@ class KeyRecordRepository {
   }
 
   static Future<void> returnKey(KeyRecord record) async {
+    debugPrint('[RETURN START] Key: ${record.keyId}');
+    
     final index = _indexForRecord(record);
     if (index == -1) {
+      debugPrint('[RETURN FAILED] Key not found: ${record.keyId}');
       return;
     }
+    
     // Determine stable id for guarding concurrent returns: prefer docId, fallback to keyId
     final id = (record.docId?.trim().isNotEmpty ?? false)
         ? record.docId!.trim()
         : record.keyId.trim().toUpperCase();
+    
+    debugPrint('[RETURN DOC ID] $id');
 
     if (_inFlightReturnKeys.contains(id)) {
-      debugPrint('[KeyRepository] returnKey ignored: already in-flight for $id');
+      debugPrint('[RETURN FAILED] Already in-flight for $id');
       return;
     }
 
     // If key is already available locally, skip processing (idempotent)
     if (_keys[index].status.trim().toLowerCase() == 'available') {
-      debugPrint('[KeyRepository] returnKey ignored: key already available ${record.keyId}');
+      debugPrint('[RETURN FAILED] Key already available ${record.keyId}');
       return;
     }
 
     _inFlightReturnKeys.add(id);
     try {
+      final actor = resolveActor(null);
+      debugPrint('[RETURN USER] $actor');
+      
       _keys[index] = _keys[index].copyWith(
         status: 'Available',
         borrowerName: '',
@@ -1364,6 +1373,7 @@ class KeyRecordRepository {
       var firestoreWriteFailed = false;
       if (_firestoreAvailable) {
         try {
+          debugPrint('[RETURN FIRESTORE UPDATE] Updating key and notification');
           await _persistKeyToFirestore(_keys[index]);
           await _saveNotification(
             action: 'Returned',
@@ -1372,11 +1382,11 @@ class KeyRecordRepository {
               key: _keys[index],
               borrowerName: record.borrowerName,
               purpose: record.purpose,
-              actor: resolveActor(null),
+              actor: actor,
             ),
             keyId: _keys[index].keyId,
             category: _keys[index].category,
-            recordedBy: resolveActor(null),
+            recordedBy: actor,
             audience: 'allMembers',
             type: 'return_key',
             extraData: {
@@ -1391,7 +1401,8 @@ class KeyRecordRepository {
               'keyName': _keys[index].keyName,
             },
           );
-        } catch (_) {
+        } catch (e) {
+          debugPrint('[RETURN FIRESTORE ERROR] $e');
           firestoreWriteFailed = true;
         }
 
@@ -1404,6 +1415,7 @@ class KeyRecordRepository {
       }
 
       _notifyKeys();
+      debugPrint('[RETURN SUCCESS] Key ${record.keyId} returned to Available');
     } finally {
       _inFlightReturnKeys.remove(id);
     }
