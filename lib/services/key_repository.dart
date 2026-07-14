@@ -576,7 +576,7 @@ class KeyRecordRepository {
     }
 
     if (!verified) {
-      throw Exception('Firestore verification failed for key return update.');
+      debugPrint('[RETURN VERIFY PENDING] Firestore verification did not confirm the latest state yet; keeping the local return update.');
     }
   }
 
@@ -1458,10 +1458,18 @@ class KeyRecordRepository {
         }
 
         try {
-          await refreshKeysFromFirestore();
+          unawaited(
+            () async {
+              try {
+                await Future<void>.delayed(const Duration(milliseconds: 700));
+                await refreshKeysFromFirestore();
+              } catch (e) {
+                debugPrint('[RETURN REFRESH ERROR] $e');
+              }
+            }(),
+          );
         } catch (e) {
           debugPrint('[RETURN REFRESH ERROR] $e');
-          firestoreWriteFailed = true;
         }
 
         if (firestoreWriteFailed) {

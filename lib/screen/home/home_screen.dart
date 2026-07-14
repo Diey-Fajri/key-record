@@ -382,7 +382,6 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       debugPrint('[HOME RETURN CALLING REPOSITORY] Calling KeyRecordRepository.returnKey()');
       await KeyRecordRepository.returnKey(record);
-      await KeyRecordRepository.refreshKeysFromFirestore();
       if (mounted) {
         setState(() {});
       }
