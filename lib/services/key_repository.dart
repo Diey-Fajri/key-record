@@ -555,7 +555,9 @@ class KeyRecordRepository {
 
     for (var attempt = 1; attempt <= 3; attempt++) {
       await Future<void>.delayed(const Duration(milliseconds: 400));
-      final verifiedSnapshot = await targetRef.get();
+      final verifiedSnapshot = await targetRef.get(
+        const GetOptions(source: Source.server),
+      );
       final verifiedData = verifiedSnapshot.data();
       verifiedStatus = verifiedData?['status']?.toString() ?? '';
       verifiedBorrowerName = verifiedData?['borrowerName']?.toString() ?? '';
@@ -960,7 +962,9 @@ class KeyRecordRepository {
       return;
     }
 
-    final snapshot = await _keysCollection.get();
+    final snapshot = await _keysCollection.get(
+      const GetOptions(source: Source.server),
+    );
     final keys = _dedupeKeysById(
       snapshot.docs.map((doc) => KeyRecord.fromFirestore(doc)),
     );
@@ -1454,7 +1458,6 @@ class KeyRecordRepository {
         }
 
         try {
-          await Future<void>.delayed(const Duration(milliseconds: 500));
           await refreshKeysFromFirestore();
         } catch (e) {
           debugPrint('[RETURN REFRESH ERROR] $e');
