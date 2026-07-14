@@ -225,34 +225,6 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                           ),
                         ),
                       ),
-                      FilledButton.icon(
-                        onPressed: _canReturn && !_isBusy
-                            ? () async {
-                                if (_isBusy) return;
-                                setState(() => _isBusy = true);
-                                try {
-                                  await _handleAction(context, 'Returned');
-                                } finally {
-                                  if (mounted) setState(() => _isBusy = false);
-                                }
-                              }
-                            : null,
-                        icon: _isBusy
-                            ? const SizedBox(
-                                height: 16,
-                                width: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                              )
-                            : const Icon(Icons.assignment_turned_in_outlined),
-                        label: _isBusy ? const Text('Processing...') : const Text('Returned'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFF2E7D32),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                      ),
                       if (_canAddKey)
                         FilledButton.icon(
                           onPressed: () {

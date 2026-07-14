@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../services/key_repository.dart';
-import '../../services/auth_service.dart';
 
 class TakeKeyDetailScreen extends StatefulWidget {
   const TakeKeyDetailScreen({required this.record, super.key});
@@ -14,7 +13,6 @@ class TakeKeyDetailScreen extends StatefulWidget {
 
 class _TakeKeyDetailScreenState extends State<TakeKeyDetailScreen> {
   late KeyRecord _record;
-  bool _isReturning = false;
 
   @override
   void initState() {
@@ -55,66 +53,6 @@ class _TakeKeyDetailScreenState extends State<TakeKeyDetailScreen> {
           padding: const EdgeInsets.all(16),
           children: [
             ...fields,
-            if (_record.status == 'In Use' || _record.status == 'Hand Over')
-              FilledButton.icon(
-                onPressed: _isReturning
-                    ? null
-                    : () async {
-                        final id = (_record.docId?.trim().isNotEmpty ?? false)
-                            ? _record.docId!.trim()
-                            : _record.keyId.trim().toUpperCase();
-                        
-                        // Detailed debug log BEFORE repository call
-                        debugPrint('[DETAIL RETURN START]');
-                        debugPrint('  keyId: ${_record.keyId}');
-                        debugPrint('  docId: ${_record.docId}');
-                        debugPrint('  id (resolved): $id');
-                        debugPrint('  status: ${_record.status}');
-                        debugPrint('  borrower: ${_record.borrowerName}');
-                        debugPrint('  purpose: ${_record.purpose}');
-                        debugPrint('  category: ${_record.category}');
-                        debugPrint('  zone: ${_record.zone}');
-                        debugPrint('  keyName: ${_record.keyName}');
-                        debugPrint('  user: ${AuthService.activeUser}');
-                        debugPrint('  Record object toString: $_record');
-                        
-                        setState(() => _isReturning = true);
-                        try {
-                          final messenger = ScaffoldMessenger.of(context);
-                          final navigator = Navigator.of(context);
-                          debugPrint('[DETAIL RETURN CALLING REPOSITORY] Calling KeyRecordRepository.returnKey()');
-                          await KeyRecordRepository.returnKey(_record);
-                          debugPrint('[DETAIL RETURN FINISHED]');
-                          debugPrint('  keyId: ${_record.keyId}');
-                          debugPrint('  Result: Repository call completed successfully');
-                          if (!mounted) return;
-                          messenger.showSnackBar(
-                            const SnackBar(content: Text('Key returned and available now.')),
-                          );
-                          navigator.pop();
-                        } catch (error) {
-                          debugPrint('[DETAIL RETURN ERROR] Failed to return key');
-                          debugPrint('  keyId: ${_record.keyId}');
-                          debugPrint('  Error: $error');
-                          // errors handled in repository or caller
-                        } finally {
-                          if (mounted) setState(() => _isReturning = false);
-                        }
-                      },
-                icon: _isReturning
-                    ? const SizedBox(
-                        height: 16,
-                        width: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Icon(Icons.assignment_turned_in_outlined),
-                label: _isReturning ? const Text('Returning...') : const Text('Return Key'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF2E7D32),
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size.fromHeight(48),
-                ),
-              ),
           ],
         ),
       ),

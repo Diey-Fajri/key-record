@@ -1411,8 +1411,9 @@ class KeyRecordRepository {
     try {
       final actor = resolveActor(null);
       debugPrint('[RETURN USER] $actor');
-      
+
       _keys[index] = buildReturnedKeyRecord(_keys[index], record);
+      _notifyKeys();
 
       await _updateReturnEvent(record);
 
@@ -1452,8 +1453,14 @@ class KeyRecordRepository {
           firestoreWriteFailed = true;
         }
 
-        await Future<void>.delayed(const Duration(milliseconds: 500));
-        await refreshKeysFromFirestore();
+        try {
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+          await refreshKeysFromFirestore();
+        } catch (e) {
+          debugPrint('[RETURN REFRESH ERROR] $e');
+          firestoreWriteFailed = true;
+        }
+
         if (firestoreWriteFailed) {
           throw Exception(
             'Failed to update key return in Firestore. Please retry.',
