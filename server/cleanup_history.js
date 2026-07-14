@@ -15,7 +15,7 @@ admin.initializeApp({
 
 const db = admin.firestore();
 
-async function deleteCollection(collectionPath) {
+async function deleteAllDocumentsInCollection(collectionPath) {
   const collectionRef = db.collection(collectionPath);
   let deletedCount = 0;
   let query = collectionRef.limit(500);
@@ -44,11 +44,15 @@ async function deleteCollection(collectionPath) {
 
 (async () => {
   try {
-    const notificationsDeleted = await deleteCollection('notifications');
-    const eventLogDeleted = await deleteCollection('event_log');
+    const collectionsToClear = ['notifications', 'event_log', 'saved_persons'];
+    const results = {};
 
-    console.log(`Notifications cleared: ${notificationsDeleted}`);
-    console.log(`Event log entries cleared: ${eventLogDeleted}`);
+    for (const collectionPath of collectionsToClear) {
+      results[collectionPath] = await deleteAllDocumentsInCollection(collectionPath);
+      console.log(`${collectionPath} documents cleared: ${results[collectionPath]}`);
+    }
+
+    console.log('Collections were preserved; only documents were removed.');
     process.exit(0);
   } catch (error) {
     console.error('Cleanup failed:', error);
