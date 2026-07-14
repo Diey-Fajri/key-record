@@ -3,6 +3,30 @@ import 'package:key_record/services/key_repository.dart' as repository;
 
 void main() {
   group('KeyRecordRepository return flow', () {
+    test('stores staffFrom in the Firestore payload and clears it on return', () {
+      final existing = repository.KeyRecord(
+        docId: 'old-doc',
+        keyId: 'K1',
+        zone: 'Zone',
+        keyName: 'Key',
+        borrowerName: 'kim',
+        icPassport: '123',
+        phoneNumber: '012',
+        company: 'ABC',
+        purpose: 'test',
+        status: 'In Use',
+        takenAt: DateTime(2025, 1, 1),
+        category: 'Zone',
+        staffFrom: 'Mall',
+      );
+
+      final payload = existing.toFirestore();
+      expect(payload['staffFrom'], 'Mall');
+
+      final returned = repository.KeyRecordRepository.buildReturnedKeyRecord(existing, existing);
+      expect(returned.staffFrom, isEmpty);
+    });
+
     test('uses the incoming Firestore doc id when building the returned key record', () {
       final existing = repository.KeyRecord(
         docId: 'old-doc',

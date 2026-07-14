@@ -15,6 +15,7 @@ class _ExportTransactionRow {
     required this.icPassport,
     required this.phoneNumber,
     required this.departmentCompany,
+    required this.staffFrom,
     required this.keyName,
     required this.purpose,
     required this.takenAt,
@@ -25,6 +26,7 @@ class _ExportTransactionRow {
   final String icPassport;
   final String phoneNumber;
   final String departmentCompany;
+  final String staffFrom;
   final String keyName;
   final String purpose;
   final DateTime? takenAt;
@@ -420,6 +422,7 @@ class _EventLogScreenState extends State<EventLogScreen> {
         xls.TextCellValue('IC/Passport No.'),
         xls.TextCellValue('Phone No.'),
         xls.TextCellValue('Company / Department'),
+        xls.TextCellValue('Staff From'),
         xls.TextCellValue('Keys'),
         xls.TextCellValue('Purpose'),
         xls.TextCellValue('In Use Time'),
@@ -437,6 +440,7 @@ class _EventLogScreenState extends State<EventLogScreen> {
           xls.TextCellValue(rowData.icPassport),
           xls.TextCellValue(rowData.phoneNumber),
           xls.TextCellValue(rowData.departmentCompany),
+          xls.TextCellValue(rowData.staffFrom),
           xls.TextCellValue(rowData.keyName),
           xls.TextCellValue(rowData.purpose),
           xls.TextCellValue(rowData.takenAt == null ? '' : _formatTime(rowData.takenAt!)),
@@ -693,6 +697,7 @@ class _EventLogScreenState extends State<EventLogScreen> {
       icPassport: _exportIcPassport(event),
       phoneNumber: event.phoneNumber,
       departmentCompany: _departmentCompany(event),
+      staffFrom: _staffFromForExport(event),
       keyName: _keyForTable(event),
       purpose: _purposeForExport(event),
       takenAt: takenAt,
@@ -735,6 +740,15 @@ class _EventLogScreenState extends State<EventLogScreen> {
     }
 
     return department.isNotEmpty ? 'Department $department' : '';
+  }
+
+  String _staffFromForExport(EventLog event) {
+    final staffFrom = event.staffFrom.trim();
+    if (staffFrom.isNotEmpty) {
+      return staffFrom;
+    }
+
+    return event.metadata['staffFrom']?.toString().trim() ?? '';
   }
 
   String _keyForTable(EventLog event) {

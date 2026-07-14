@@ -13,6 +13,7 @@ class Borrower {
     required this.phone,
     required this.company,
     required this.department,
+    this.staffFrom = '',
   });
 
   final String name;
@@ -20,6 +21,7 @@ class Borrower {
   final String phone;
   final String company;
   final String department;
+  final String staffFrom;
 
   Map<String, dynamic> toFirestore() {
     return {
@@ -28,6 +30,7 @@ class Borrower {
       'phone': phone,
       'company': company,
       'department': department,
+      'staffFrom': staffFrom,
     };
   }
 
@@ -41,6 +44,7 @@ class Borrower {
       phone: data['phone'] as String? ?? '',
       company: data['company'] as String? ?? '',
       department: data['department'] as String? ?? '',
+      staffFrom: data['staffFrom'] as String? ?? '',
     );
   }
 }
@@ -63,6 +67,7 @@ class EventLog {
     required this.actor,
     this.category = '',
     this.metadata = const {},
+    this.staffFrom = '',
   });
 
   final String? id;
@@ -81,6 +86,7 @@ class EventLog {
   final String actor;
   final String category;
   final Map<String, dynamic> metadata;
+  final String staffFrom;
 
   Map<String, dynamic> toFirestore() {
     return {
@@ -104,6 +110,7 @@ class EventLog {
       'level': metadata['level']?.toString() ?? '',
       'zone': metadata['zone']?.toString() ?? '',
       'metadata': metadata,
+      'staffFrom': staffFrom,
     };
   }
 
@@ -159,6 +166,7 @@ class EventLog {
       actor: data['actor'] as String? ?? 'System',
       category: data['category'] as String? ?? '',
       metadata: metadata,
+      staffFrom: data['staffFrom'] as String? ?? '',
     );
   }
 
@@ -179,6 +187,7 @@ class EventLog {
     String? actor,
     String? category,
     Map<String, dynamic>? metadata,
+    String? staffFrom,
   }) {
     return EventLog(
       id: id ?? this.id,
@@ -197,6 +206,7 @@ class EventLog {
       actor: actor ?? this.actor,
       category: category ?? this.category,
       metadata: metadata ?? this.metadata,
+      staffFrom: staffFrom ?? this.staffFrom,
     );
   }
 }
@@ -216,6 +226,7 @@ class KeyRecord {
     required this.takenAt,
     this.category = '',
     this.metadata = const {},
+    this.staffFrom = '',
   });
 
   final String? docId;
@@ -231,6 +242,7 @@ class KeyRecord {
   final DateTime takenAt;
   final String category;
   final Map<String, dynamic> metadata;
+  final String staffFrom;
 
   Map<String, dynamic> toMap() {
     return {
@@ -246,6 +258,7 @@ class KeyRecord {
       'takenAt': Timestamp.fromDate(takenAt),
       'category': category,
       'metadata': metadata,
+      'staffFrom': staffFrom,
     };
   }
 
@@ -286,6 +299,7 @@ class KeyRecord {
       takenAt: takenAt,
       category: data['category'] as String? ?? '',
       metadata: metadata,
+      staffFrom: data['staffFrom'] as String? ?? '',
     );
   }
 
@@ -303,6 +317,7 @@ class KeyRecord {
     DateTime? takenAt,
     String? category,
     Map<String, dynamic>? metadata,
+    String? staffFrom,
   }) {
     return KeyRecord(
       docId: docId ?? this.docId,
@@ -318,6 +333,7 @@ class KeyRecord {
       takenAt: takenAt ?? this.takenAt,
       category: category ?? this.category,
       metadata: metadata ?? this.metadata,
+      staffFrom: staffFrom ?? this.staffFrom,
     );
   }
 }
@@ -535,48 +551,41 @@ class KeyRecordRepository {
       return;
     }
 
-    final payload = key.toMap();
     final targetDocId = (key.docId?.trim().isNotEmpty ?? false)
         ? key.docId!.trim()
         : _keyDocIdForRecord(key);
+    final targetRef = _keysCollection.doc(targetDocId);
 
-    debugPrint('[BEFORE WRITE] docId: $targetDocId');
-    debugPrint('[BEFORE WRITE] status: ${payload['status'] ?? ''}');
-    debugPrint('[BEFORE WRITE] borrowerName: ${payload['borrowerName'] ?? ''}');
-    debugPrint('[BEFORE WRITE] purpose: ${payload['purpose'] ?? ''}');
+    debugPrint('[PERSIST KEY] docId: $targetDocId');
+    debugPrint('[PERSIST KEY] status: ${key.status}');
+    debugPrint('[PERSIST KEY] borrowerName: ${key.borrowerName}');
+    debugPrint('[PERSIST KEY] purpose: ${key.purpose}');
+    debugPrint('[PERSIST KEY] company: ${key.company}');
+    debugPrint('[PERSIST KEY] phoneNumber: ${key.phoneNumber}');
+    debugPrint('[PERSIST KEY] icPassport: ${key.icPassport}');
 
     await _saveKey(key);
 
-    final targetRef = _keysCollection.doc(targetDocId);
-    var verifiedStatus = '';
-    var verifiedBorrowerName = '';
-    var verifiedPurpose = '';
-    var verified = false;
+    final verifiedSnapshot = await targetRef.get(
+      const GetOptions(source: Source.server),
+    );
+    final verifiedData = verifiedSnapshot.data();
+    final verifiedStatus = verifiedData?['status']?.toString() ?? '';
+    final verifiedBorrowerName = verifiedData?['borrowerName']?.toString() ?? '';
+    final verifiedPurpose = verifiedData?['purpose']?.toString() ?? '';
+    final verifiedCompany = verifiedData?['company']?.toString() ?? '';
+    final verifiedPhoneNumber = verifiedData?['phoneNumber']?.toString() ?? '';
+    final verifiedIcPassport = verifiedData?['icPassport']?.toString() ?? '';
 
-    for (var attempt = 1; attempt <= 3; attempt++) {
-      await Future<void>.delayed(const Duration(milliseconds: 400));
-      final verifiedSnapshot = await targetRef.get(
-        const GetOptions(source: Source.server),
+    if (verifiedStatus != key.status ||
+        verifiedBorrowerName != key.borrowerName ||
+        verifiedPurpose != key.purpose ||
+        verifiedCompany != key.company ||
+        verifiedPhoneNumber != key.phoneNumber ||
+        verifiedIcPassport != key.icPassport) {
+      throw StateError(
+        'Firestore verification failed for key $targetDocId after return update.',
       );
-      final verifiedData = verifiedSnapshot.data();
-      verifiedStatus = verifiedData?['status']?.toString() ?? '';
-      verifiedBorrowerName = verifiedData?['borrowerName']?.toString() ?? '';
-      verifiedPurpose = verifiedData?['purpose']?.toString() ?? '';
-
-      debugPrint('[AFTER WRITE VERIFY] attempt $attempt status: $verifiedStatus');
-      debugPrint('[AFTER WRITE VERIFY] attempt $attempt borrowerName: $verifiedBorrowerName');
-      debugPrint('[AFTER WRITE VERIFY] attempt $attempt purpose: $verifiedPurpose');
-
-      if (verifiedStatus == key.status &&
-          verifiedBorrowerName == key.borrowerName &&
-          verifiedPurpose == key.purpose) {
-        verified = true;
-        break;
-      }
-    }
-
-    if (!verified) {
-      debugPrint('[RETURN VERIFY PENDING] Firestore verification did not confirm the latest state yet; keeping the local return update.');
     }
   }
 
@@ -789,6 +798,7 @@ class KeyRecordRepository {
       phone: borrower.phone.trim(),
       company: borrower.company.trim(),
       department: borrower.department.trim(),
+      staffFrom: borrower.staffFrom.trim(),
     );
     if (normalized.name.isEmpty) {
       return false;
@@ -824,6 +834,7 @@ class KeyRecordRepository {
       phone: original.phone.trim(),
       company: original.company.trim(),
       department: original.department.trim(),
+      staffFrom: original.staffFrom.trim(),
     );
     final normalizedUpdated = Borrower(
       name: updated.name.trim(),
@@ -831,6 +842,7 @@ class KeyRecordRepository {
       phone: updated.phone.trim(),
       company: updated.company.trim(),
       department: updated.department.trim(),
+      staffFrom: updated.staffFrom.trim(),
     );
 
     if (normalizedUpdated.name.isEmpty) {
@@ -866,6 +878,7 @@ class KeyRecordRepository {
       phone: borrower.phone.trim(),
       company: borrower.company.trim(),
       department: borrower.department.trim(),
+      staffFrom: borrower.staffFrom.trim(),
     );
 
     _savedBorrowers.removeWhere(
@@ -1434,6 +1447,7 @@ class KeyRecordRepository {
         actor: recordedBy,
         category: _keys[index].category,
         metadata: mergedMetadata,
+        staffFrom: borrower.staffFrom,
       );
 
       if (_firestoreAvailable) {
@@ -1465,6 +1479,7 @@ class KeyRecordRepository {
               'rollerLevelNo': _normalizeMetadataField(_keys[index].metadata['rollerLevelNo']),
               'rollerNumber': _normalizeMetadataField(_keys[index].metadata['rollerNumber']),
               'zone': _keys[index].zone,
+              'staffFrom': borrower.staffFrom,
             },
           );
         } catch (_) {
@@ -1500,6 +1515,7 @@ class KeyRecordRepository {
       purpose: '',
       takenAt: DateTime.now(),
       metadata: Map<String, dynamic>.from(existing.metadata),
+      staffFrom: '',
     );
   }
 
@@ -1535,45 +1551,44 @@ class KeyRecordRepository {
       final actor = resolveActor(null);
       debugPrint('[RETURN USER] $actor');
 
-      _keys[index] = buildReturnedKeyRecord(_keys[index], record);
-      _notifyKeys();
+      final returnedKey = buildReturnedKeyRecord(_keys[index], record);
 
-      await _updateReturnEvent(record);
-
-      var firestoreWriteFailed = false;
       if (_firestoreAvailable) {
         try {
           debugPrint('[RETURN FIRESTORE UPDATE] Updating key and notification');
-          await _persistKeyToFirestore(_keys[index]);
+          await _persistKeyToFirestore(returnedKey);
           await _saveNotification(
             action: 'Returned',
             title: 'Key Returned',
             body: _notificationBodyForReturnedKey(
-              key: _keys[index],
+              key: returnedKey,
               borrowerName: record.borrowerName,
               purpose: record.purpose,
               actor: actor,
             ),
-            keyId: _keys[index].keyId,
-            category: _keys[index].category,
+            keyId: returnedKey.keyId,
+            category: returnedKey.category,
             recordedBy: actor,
             audience: 'allMembers',
             type: 'return_key',
             extraData: {
               'borrowerName': record.borrowerName,
               'purpose': record.purpose,
-              'level': _normalizeMetadataField(_keys[index].metadata['level']),
-              'masterKey': _normalizeMetadataField(_keys[index].metadata['masterKey']),
-              'lotKey': _normalizeMetadataField(_keys[index].metadata['lotKey']),
-              'rollerLevelNo': _normalizeMetadataField(_keys[index].metadata['rollerLevelNo']),
-              'rollerNumber': _normalizeMetadataField(_keys[index].metadata['rollerNumber']),
-              'zone': _keys[index].zone,
-              'keyName': _keys[index].keyName,
+              'level': _normalizeMetadataField(returnedKey.metadata['level']),
+              'masterKey': _normalizeMetadataField(returnedKey.metadata['masterKey']),
+              'lotKey': _normalizeMetadataField(returnedKey.metadata['lotKey']),
+              'rollerLevelNo': _normalizeMetadataField(returnedKey.metadata['rollerLevelNo']),
+              'rollerNumber': _normalizeMetadataField(returnedKey.metadata['rollerNumber']),
+              'zone': returnedKey.zone,
+              'keyName': returnedKey.keyName,
+              'staffFrom': returnedKey.staffFrom,
             },
           );
         } catch (e) {
           debugPrint('[RETURN FIRESTORE ERROR] $e');
-          firestoreWriteFailed = true;
+          throw Exception(
+            'Failed to update key return in Firestore. Please retry.',
+          );
         }
 
         try {
@@ -1590,14 +1605,10 @@ class KeyRecordRepository {
         } catch (e) {
           debugPrint('[RETURN REFRESH ERROR] $e');
         }
-
-        if (firestoreWriteFailed) {
-          throw Exception(
-            'Failed to update key return in Firestore. Please retry.',
-          );
-        }
       }
 
+      _keys[index] = returnedKey;
+      await _updateReturnEvent(record);
       _notifyKeys();
       debugPrint('[RETURN SUCCESS] Key ${record.keyId} returned to Available');
     } finally {
@@ -2157,6 +2168,7 @@ class KeyRecordRepository {
       actor: resolveActor(null),
       category: record.category,
       metadata: record.metadata,
+      staffFrom: record.staffFrom,
     );
     await _appendEvent(returnEvent);
   }

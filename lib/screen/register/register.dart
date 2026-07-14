@@ -5,6 +5,20 @@ import '../../services/auth_service.dart';
 import '../../services/key_repository.dart' as repository;
 import '../../widget/beautiful_submit_button.dart';
 
+bool borrowerMatchesCategory({
+  required repository.Borrower borrower,
+  required String borrowerCategory,
+}) {
+  final hasIc = borrower.icPassport.trim().isNotEmpty;
+  final hasStaffOrigin = borrower.staffFrom.trim().isNotEmpty;
+
+  if (borrowerCategory == 'Staff') {
+    return !hasIc || hasStaffOrigin;
+  }
+
+  return hasIc;
+}
+
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key, this.initialKeyId});
 
@@ -22,6 +36,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _phoneController = TextEditingController();
   final _companyController = TextEditingController();
   final _departmentController = TextEditingController();
+  final _staffFromController = TextEditingController();
   final _purposeController = TextEditingController();
   final _remarksController = TextEditingController();
   final _documentReportNoController = TextEditingController();
@@ -44,6 +59,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
   static const List<String> _borrowerCategories = [
     'Staff',
     'Others',
+  ];
+
+  static const List<String> _staffFromOptions = [
+    'Mall',
+    'Office Tower',
+    'Hotel',
+    'Service Apartment',
   ];
 
   static const List<String> _takeStatuses = [
@@ -83,6 +105,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _phoneController.dispose();
     _companyController.dispose();
     _departmentController.dispose();
+    _staffFromController.dispose();
     _purposeController.dispose();
     _remarksController.dispose();
     _documentReportNoController.dispose();
@@ -184,34 +207,37 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                     itemCount: options.length,
                                     itemBuilder: (context, index) {
                                       final key = options.elementAt(index);
-                                      return ListTile(
-                                        dense: true,
-                                        contentPadding: const EdgeInsets.symmetric(
-                                          horizontal: 12,
-                                          vertical: 4,
+                                      return Material(
+                                        color: Colors.transparent,
+                                        child: ListTile(
+                                          dense: true,
+                                          contentPadding: const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 4,
+                                          ),
+                                          leading: const Icon(
+                                            Icons.vpn_key_outlined,
+                                            color: Color(0xFF1E3A5F),
+                                          ),
+                                          title: Text(
+                                            key.primaryTitle,
+                                            style: const TextStyle(fontWeight: FontWeight.w700),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          subtitle: key.secondaryTitle.isEmpty
+                                              ? null
+                                              : Text(
+                                                  key.secondaryTitle,
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: const TextStyle(color: Colors.black54),
+                                                ),
+                                          trailing: _AvailabilityTag(
+                                            status: key.status,
+                                          ),
+                                          onTap: () => onSelected(key),
                                         ),
-                                        leading: const Icon(
-                                          Icons.vpn_key_outlined,
-                                          color: Color(0xFF1E3A5F),
-                                        ),
-                                        title: Text(
-                                          key.primaryTitle,
-                                          style: const TextStyle(fontWeight: FontWeight.w700),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        subtitle: key.secondaryTitle.isEmpty
-                                            ? null
-                                            : Text(
-                                                key.secondaryTitle,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(color: Colors.black54),
-                                              ),
-                                        trailing: _AvailabilityTag(
-                                          status: key.status,
-                                        ),
-                                        onTap: () => onSelected(key),
                                       );
                                     },
                                   ),
@@ -256,6 +282,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           _borrowerCategory = value;
                           if (value == 'Staff') {
                             _icController.clear();
+                          } else {
+                            _staffFromController.clear();
                           }
                         });
                       },
@@ -269,7 +297,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           return const Iterable<repository.Borrower>.empty();
                         }
                         return _savedBorrowers.where((borrower) {
-                          return borrower.name.toLowerCase().contains(query);
+                          return borrowerMatchesCategory(
+                                borrower: borrower,
+                                borrowerCategory: _borrowerCategory,
+                              ) &&
+                              borrower.name.toLowerCase().contains(query);
                         });
                       },
                       onSelected: _selectBorrower,
@@ -313,6 +345,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           'Department',
                           Icons.apartment,
                         ),
+                        validator: _required,
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: _normalizeStaffFromValue(_staffFromController.text),
+                        decoration: _inputDecoration('Staff From', Icons.location_on_outlined),
+                        items: _staffFromOptions
+                            .map((option) => DropdownMenuItem(value: option, child: Text(option)))
+                            .toList(),
+                        onChanged: (value) {
+                          if (value == null) {
+                            _staffFromController.clear();
+                            return;
+                          }
+                          _staffFromController.text = _normalizeStaffFromValue(value) ?? '';
+                        },
                         validator: _required,
                       ),
                       const SizedBox(height: 12),
@@ -489,6 +537,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _phoneController.text = borrower.phone;
       _companyController.text = borrower.company;
       _departmentController.text = borrower.department;
+      _staffFromController.text = _normalizeStaffFromValue(borrower.staffFrom) ?? '';
     });
   }
 
@@ -551,6 +600,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _validateForm() {
     if (_selectedKeys.isEmpty) {
       _showMessage('Please add at least one available key.');
+      return false;
+    }
+
+    if (_borrowerCategory == 'Staff' && (_normalizeStaffFromValue(_staffFromController.text.trim()) ?? '').isEmpty) {
+      _showMessage('Please select a Staff From option.');
+      return false;
+    }
+
+    if (_nameController.text.trim().isEmpty) {
+      _showMessage('Please enter the borrower name.');
+      return false;
+    }
+
+    if (_borrowerCategory == 'Staff' && _nameController.text.trim().isEmpty) {
+      _showMessage('Please enter the staff name.');
       return false;
     }
 
@@ -636,7 +700,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
       phone: _phoneController.text.trim(),
       company: _companyController.text.trim(),
       department: _departmentController.text.trim(),
+      staffFrom: _borrowerCategory == 'Staff'
+          ? (_normalizeStaffFromValue(_staffFromController.text.trim()) ?? '')
+          : '',
     );
+  }
+
+  String? _normalizeStaffFromValue(String value) {
+    final normalized = value.trim();
+    if (normalized.isEmpty) {
+      return null;
+    }
+
+    final match = _staffFromOptions.firstWhere(
+      (option) => option.toLowerCase() == normalized.toLowerCase(),
+      orElse: () => '',
+    );
+    return match.isEmpty ? null : match;
   }
 
   Map<String, dynamic> _buildTransactionMetadata(String borrowerName) {
@@ -646,6 +726,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
       'staffName': _borrowerCategory == 'Staff' ? borrowerName : '',
       'othersName': _borrowerCategory == 'Others' ? borrowerName : '',
       'department': _departmentController.text.trim(),
+      'staffFrom': _borrowerCategory == 'Staff'
+          ? (_normalizeStaffFromValue(_staffFromController.text.trim()) ?? '')
+          : '',
       'purpose': _purposeController.text.trim(),
       'remarks': _remarksController.text.trim(),
       if (isHandOver) ...{
@@ -777,6 +860,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
       phone: _phoneController.text.trim(),
       company: _companyController.text.trim(),
       department: _departmentController.text.trim(),
+      staffFrom: _borrowerCategory == 'Staff'
+          ? (_normalizeStaffFromValue(_staffFromController.text.trim()) ?? '')
+          : '',
     );
     return await repository.KeyRecordRepository.saveBorrowerProfile(
       borrower,

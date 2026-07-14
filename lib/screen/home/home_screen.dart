@@ -721,20 +721,23 @@ class _SearchBar extends StatelessWidget {
             ),
             child: Column(
               children: suggestions.map((record) {
-                return ListTile(
-                  dense: true,
-                  leading: const Icon(Icons.vpn_key_outlined),
-                  title: Text(
-                    _searchHintTitle(record),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                return Material(
+                  color: Colors.transparent,
+                  child: ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.vpn_key_outlined),
+                    title: Text(
+                      _searchHintTitle(record),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text(
+                      record.keyName.isNotEmpty ? record.keyName : record.status,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onTap: () => onSuggestionSelected(record),
                   ),
-                  subtitle: Text(
-                    record.keyName.isNotEmpty ? record.keyName : record.status,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  onTap: () => onSuggestionSelected(record),
                 );
               }).toList(growable: false),
             ),

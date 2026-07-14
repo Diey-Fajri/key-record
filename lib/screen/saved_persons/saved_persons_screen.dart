@@ -10,23 +10,95 @@ class SavedPersonsScreen extends StatefulWidget {
   State<SavedPersonsScreen> createState() => _SavedPersonsScreenState();
 }
 
+class _DetailField {
+  const _DetailField(this.label, this.value);
+
+  final String label;
+  final String value;
+}
+
 class _SavedPersonsScreenState extends State<SavedPersonsScreen> {
+  static const List<String> _staffFromOptions = [
+    'Mall',
+    'Office Tower',
+    'Hotel',
+    'Service Apartment',
+  ];
+
+  String _inferBorrowerCategory(Borrower person) {
+    if (person.staffFrom.trim().isNotEmpty) {
+      return 'Staff';
+    }
+    if (person.icPassport.trim().isNotEmpty || person.company.trim().isNotEmpty) {
+      return 'Others';
+    }
+    return 'Unknown';
+  }
+
+  List<_DetailField> _detailFieldsFor(Borrower person) {
+    final category = _inferBorrowerCategory(person);
+    final fields = <_DetailField>[];
+
+    if (person.name.trim().isNotEmpty) {
+      fields.add(_DetailField('Name', person.name));
+    }
+
+    if (category == 'Staff') {
+      if (person.department.trim().isNotEmpty) {
+        fields.add(_DetailField('Department', person.department));
+      }
+      if (person.phone.trim().isNotEmpty) {
+        fields.add(_DetailField('Phone', person.phone));
+      }
+      if (person.staffFrom.trim().isNotEmpty) {
+        fields.add(_DetailField('Staff From', person.staffFrom));
+      }
+    } else if (category == 'Others') {
+      if (person.icPassport.trim().isNotEmpty) {
+        fields.add(_DetailField('IC / Passport', person.icPassport));
+      }
+      if (person.phone.trim().isNotEmpty) {
+        fields.add(_DetailField('Phone', person.phone));
+      }
+      if (person.company.trim().isNotEmpty) {
+        fields.add(_DetailField('Company', person.company));
+      }
+      if (person.department.trim().isNotEmpty) {
+        fields.add(_DetailField('Department', person.department));
+      }
+    } else {
+      if (person.icPassport.trim().isNotEmpty) {
+        fields.add(_DetailField('IC / Passport', person.icPassport));
+      }
+      if (person.phone.trim().isNotEmpty) {
+        fields.add(_DetailField('Phone', person.phone));
+      }
+      if (person.company.trim().isNotEmpty) {
+        fields.add(_DetailField('Company', person.company));
+      }
+      if (person.department.trim().isNotEmpty) {
+        fields.add(_DetailField('Department', person.department));
+      }
+      if (person.staffFrom.trim().isNotEmpty) {
+        fields.add(_DetailField('Staff From', person.staffFrom));
+      }
+    }
+
+    return fields;
+  }
+
   Future<void> _showPersonDetails(BuildContext context, Borrower person) async {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
+        final detailFields = _detailFieldsFor(person);
+
         return AlertDialog(
           title: Text(person.name.isNotEmpty ? person.name : 'Saved Person'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _DetailRow(label: 'Name', value: person.name),
-              _DetailRow(label: 'IC / Passport', value: person.icPassport),
-              _DetailRow(label: 'Phone', value: person.phone),
-              _DetailRow(label: 'Company', value: person.company),
-              _DetailRow(label: 'Department', value: person.department),
-            ],
+            children: detailFields.map((field) => _DetailRow(label: field.label, value: field.value)).toList(),
           ),
           actions: [
             TextButton(
@@ -62,6 +134,10 @@ class _SavedPersonsScreenState extends State<SavedPersonsScreen> {
     final phoneController = TextEditingController(text: person.phone);
     final companyController = TextEditingController(text: person.company);
     final departmentController = TextEditingController(text: person.department);
+    final staffFromController = TextEditingController(text: person.staffFrom);
+    String? selectedStaffFrom = person.staffFrom.trim().isEmpty ? null : person.staffFrom.trim();
+
+    final messenger = ScaffoldMessenger.maybeOf(context);
 
     final saved = await showDialog<bool>(
       context: context,
@@ -79,6 +155,32 @@ class _SavedPersonsScreenState extends State<SavedPersonsScreen> {
                   _EditableField(controller: phoneController, label: 'Phone'),
                   _EditableField(controller: companyController, label: 'Company'),
                   _EditableField(controller: departmentController, label: 'Department'),
+                  StatefulBuilder(
+                    builder: (context, setState) {
+                      return DropdownButtonFormField<String>(
+                        initialValue: selectedStaffFrom,
+                        decoration: InputDecoration(
+                          labelText: 'Staff From',
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        items: _staffFromOptions
+                            .map((option) => DropdownMenuItem(value: option, child: Text(option)))
+                            .toList(),
+                        onChanged: (value) {
+                          setState(() {
+                            selectedStaffFrom = value;
+                            staffFromController.text = value ?? '';
+                          });
+                        },
+                        validator: (value) {
+                          if (person.staffFrom.trim().isNotEmpty && (value == null || value.trim().isEmpty)) {
+                            return 'Required';
+                          }
+                          return null;
+                        },
+                      );
+                    },
+                  ),
                 ],
               ),
             ),
@@ -114,24 +216,30 @@ class _SavedPersonsScreenState extends State<SavedPersonsScreen> {
         phone: phoneController.text.trim(),
         company: companyController.text.trim(),
         department: departmentController.text.trim(),
+        staffFrom: staffFromController.text.trim(),
       ),
       recordedBy: AuthService.activeUser,
     );
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Saved person updated.')),
-      );
+    if (!mounted || messenger == null) {
+      return;
     }
+
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Saved person updated.')),
+    );
 
     nameController.dispose();
     icController.dispose();
     phoneController.dispose();
     companyController.dispose();
     departmentController.dispose();
+    staffFromController.dispose();
   }
 
   Future<void> _confirmDeletePerson(BuildContext context, Borrower person) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+
     final shouldDelete = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
@@ -159,11 +267,13 @@ class _SavedPersonsScreenState extends State<SavedPersonsScreen> {
 
     await KeyRecordRepository.deleteSavedBorrowerProfile(person);
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Saved person deleted.')),
-      );
+    if (!mounted || messenger == null) {
+      return;
     }
+
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Saved person deleted.')),
+    );
   }
 
   @override
@@ -189,12 +299,45 @@ class _SavedPersonsScreenState extends State<SavedPersonsScreen> {
               return const Center(child: Text('No saved persons yet.'));
             }
 
+            final staffCount = persons.where((person) => _inferBorrowerCategory(person) == 'Staff').length;
+            final othersCount = persons.where((person) => _inferBorrowerCategory(person) == 'Others').length;
+
             return ListView.separated(
               padding: const EdgeInsets.all(16),
-              itemCount: persons.length,
+              itemCount: persons.length + 1,
               separatorBuilder: (context, index) => const SizedBox(height: 8),
               itemBuilder: (context, index) {
-                final person = persons[index];
+                if (index == 0) {
+                  return Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF7FAFC),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFE0E5E8)),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _SummaryCard(
+                            label: 'Staff',
+                            count: staffCount,
+                            color: const Color(0xFF2E7D32),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _SummaryCard(
+                            label: 'Others',
+                            count: othersCount,
+                            color: const Color(0xFF1565C0),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                final person = persons[index - 1];
                 return Container(
                   decoration: BoxDecoration(
                     color: Colors.white,
@@ -205,19 +348,47 @@ class _SavedPersonsScreenState extends State<SavedPersonsScreen> {
                     onTap: () => _showPersonDetails(context, person),
                     leading: const CircleAvatar(child: Icon(Icons.person_outline)),
                     title: Text(person.name),
-                    subtitle: Text(
-                      [
-                        if (person.department.trim().isNotEmpty) person.department.trim(),
-                        if (person.phone.trim().isNotEmpty) person.phone.trim(),
-                        if (person.company.trim().isNotEmpty) person.company.trim(),
-                      ].join(' • '),
-                    ),
                   ),
                 );
               },
             );
           },
         ),
+      ),
+    );
+  }
+}
+
+class _SummaryCard extends StatelessWidget {
+  const _SummaryCard({required this.label, required this.count, required this.color});
+
+  final String label;
+  final int count;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 4),
+          Text(
+            '$count',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              color: color,
+            ),
+          ),
+        ],
       ),
     );
   }
