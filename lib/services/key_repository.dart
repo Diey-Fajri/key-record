@@ -545,22 +545,35 @@ class KeyRecordRepository {
     debugPrint('[BEFORE WRITE] borrowerName: ${payload['borrowerName'] ?? ''}');
     debugPrint('[BEFORE WRITE] purpose: ${payload['purpose'] ?? ''}');
 
+    await _saveKey(key);
+
     final targetRef = _keysCollection.doc(targetDocId);
-    await targetRef.set(payload, SetOptions(merge: true));
+    var verifiedStatus = '';
+    var verifiedBorrowerName = '';
+    var verifiedPurpose = '';
+    var verified = false;
 
-    final verifiedSnapshot = await targetRef.get();
-    final verifiedData = verifiedSnapshot.data();
-    final verifiedStatus = verifiedData?['status']?.toString() ?? '';
-    final verifiedBorrowerName = verifiedData?['borrowerName']?.toString() ?? '';
-    final verifiedPurpose = verifiedData?['purpose']?.toString() ?? '';
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      final verifiedSnapshot = await targetRef.get();
+      final verifiedData = verifiedSnapshot.data();
+      verifiedStatus = verifiedData?['status']?.toString() ?? '';
+      verifiedBorrowerName = verifiedData?['borrowerName']?.toString() ?? '';
+      verifiedPurpose = verifiedData?['purpose']?.toString() ?? '';
 
-    debugPrint('[AFTER WRITE VERIFY] status: $verifiedStatus');
-    debugPrint('[AFTER WRITE VERIFY] borrowerName: $verifiedBorrowerName');
-    debugPrint('[AFTER WRITE VERIFY] purpose: $verifiedPurpose');
+      debugPrint('[AFTER WRITE VERIFY] attempt $attempt status: $verifiedStatus');
+      debugPrint('[AFTER WRITE VERIFY] attempt $attempt borrowerName: $verifiedBorrowerName');
+      debugPrint('[AFTER WRITE VERIFY] attempt $attempt purpose: $verifiedPurpose');
 
-    if (verifiedStatus != key.status ||
-        verifiedBorrowerName != key.borrowerName ||
-        verifiedPurpose != key.purpose) {
+      if (verifiedStatus == key.status &&
+          verifiedBorrowerName == key.borrowerName &&
+          verifiedPurpose == key.purpose) {
+        verified = true;
+        break;
+      }
+    }
+
+    if (!verified) {
       throw Exception('Firestore verification failed for key return update.');
     }
   }
@@ -1095,16 +1108,16 @@ class KeyRecordRepository {
         continue;
       }
 
-      final existingActive = _isActiveStatus(existing.status);
-      final currentActive = _isActiveStatus(key.status);
+      final existingUpdatedAt = existing.takenAt;
+      final currentUpdatedAt = key.takenAt;
+      final sameTimestamp = existingUpdatedAt.isAtSameMomentAs(currentUpdatedAt);
 
-      if (!existingActive && currentActive) {
+      if (currentUpdatedAt.isAfter(existingUpdatedAt)) {
         deduped[identity] = key;
         continue;
       }
 
-      if (existingActive == currentActive &&
-          key.takenAt.isAfter(existing.takenAt)) {
+      if (sameTimestamp && _isActiveStatus(key.status) && !_isActiveStatus(existing.status)) {
         deduped[identity] = key;
       }
     }
@@ -1439,6 +1452,7 @@ class KeyRecordRepository {
           firestoreWriteFailed = true;
         }
 
+        await Future<void>.delayed(const Duration(milliseconds: 500));
         await refreshKeysFromFirestore();
         if (firestoreWriteFailed) {
           throw Exception(
