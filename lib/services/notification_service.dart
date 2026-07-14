@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -28,7 +29,18 @@ class NotificationService {
     required GlobalKey<NavigatorState> navigatorKey,
   }) async {
     _navigatorKey = navigatorKey;
+    await _initializeLocalNotifications();
 
+    await _requestPermission();
+    await _configureFirebaseMessagingHandlers();
+    await registerCurrentDeviceToken();
+  }
+
+  static Future<void> initializeForBackground() async {
+    await _initializeLocalNotifications();
+  }
+
+  static Future<void> _initializeLocalNotifications() async {
     if (Platform.isAndroid) {
       await _setupAndroidNotificationChannel();
     }
@@ -42,10 +54,6 @@ class NotificationService {
       initializationSettings,
       onDidReceiveNotificationResponse: _onLocalNotificationTap,
     );
-
-    await _requestPermission();
-    await _configureFirebaseMessagingHandlers();
-    await registerCurrentDeviceToken();
   }
 
   static Future<void> _setupAndroidNotificationChannel() async {
@@ -53,7 +61,9 @@ class NotificationService {
       _channelId,
       _channelName,
       description: _channelDescription,
-      importance: Importance.high,
+      importance: Importance.max,
+      playSound: true,
+      enableVibration: true,
     );
     await _localNotificationsPlugin
         .resolvePlatformSpecificImplementation<
@@ -113,16 +123,24 @@ class NotificationService {
     }
   }
 
-  static Future<void> _showLocalNotification(RemoteMessage message) async {
-    final notification = message.notification!;
+  static Future<void> showLocalNotificationForMessage(RemoteMessage message) async {
+    final notification = message.notification;
+    if (notification == null) {
+      return;
+    }
+
     final android = notification.android;
     final details = NotificationDetails(
       android: AndroidNotificationDetails(
         _channelId,
         _channelName,
         channelDescription: _channelDescription,
-        importance: Importance.high,
+        importance: Importance.max,
         priority: Priority.high,
+        visibility: NotificationVisibility.public,
+        playSound: true,
+        enableVibration: true,
+        enableLights: true,
         icon: android?.smallIcon ?? '@mipmap/ic_launcher',
       ),
       iOS: const DarwinNotificationDetails(),
@@ -133,8 +151,12 @@ class NotificationService {
       notification.title,
       notification.body,
       details,
-      payload: message.data.isNotEmpty ? message.data.toString() : null,
+      payload: message.data.isNotEmpty ? jsonEncode(message.data) : null,
     );
+  }
+
+  static Future<void> _showLocalNotification(RemoteMessage message) async {
+    await showLocalNotificationForMessage(message);
   }
 
   static void _onLocalNotificationTap(NotificationResponse response) {
@@ -145,11 +167,17 @@ class NotificationService {
     }
 
     try {
-      final data = Map<String, dynamic>.from({});
-      _navigateToNotificationsScreen(data);
+      final decoded = jsonDecode(payload);
+      if (decoded is Map) {
+        final data = Map<String, dynamic>.from(decoded);
+        _navigateToNotificationsScreen(data);
+        return;
+      }
     } catch (_) {
-      _navigateToNotificationsScreen(<String, dynamic>{});
+      // Fall through to an empty payload.
     }
+
+    _navigateToNotificationsScreen(<String, dynamic>{});
   }
 
   static Future<void> subscribeToSecurityTopic() async {
@@ -255,5 +283,7 @@ class NotificationService {
 
 Future<void> _firebaseBackgroundMessageHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
+  await NotificationService.initializeForBackground();
+  await NotificationService.showLocalNotificationForMessage(message);
   debugPrint('Background message received: ${message.messageId}');
 }

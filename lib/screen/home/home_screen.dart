@@ -11,12 +11,14 @@ import '../../core/app_action_theme.dart';
 import '../../widget/app_update_dialog.dart';
 import '../all_keys/all_keys_screen.dart';
 import '../event_log/event_log_screen.dart';
+import '../notifications/notifications_screen.dart';
 import '../register/register.dart';
 import '../register/take_key_detail_screen.dart';
 import '../register_new_key/register_new_key_screen.dart';
 import '../saved_persons/saved_persons_screen.dart';
 import '../search/search_screen.dart';
 import '../settings/settings_screen.dart';
+import '../smart_detail/smart_detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -35,6 +37,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _checkingUpdateFromNotification = false;
   bool _startupUpdateChecked = false;
   final Set<String> _returningIds = <String>{};
+  final Set<String> _completedReturnIds = <String>{};
 
   @override
   void initState() {
@@ -147,18 +150,9 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const SizedBox(height: 2),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.only(bottom: 8),
-              decoration: const BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(
-                    color: Color(0xFF455A64),
-                    width: 0.5,
-                  ),
-                ),
-              ),
-              child: const Text(
+            const Padding(
+              padding: EdgeInsets.only(bottom: 2),
+              child: Text(
                 'Unit Kawalan CCTV',
                 style: TextStyle(
                   fontSize: 12,
@@ -170,6 +164,15 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Notification History',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const NotificationsScreen()),
+              );
+            },
+            icon: const Icon(Icons.notifications_outlined),
+          ),
           IconButton(
             tooltip: 'Settings',
             onPressed: () {
@@ -227,11 +230,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                       },
                                       onSuggestionSelected: (record) {
                                         _searchController.clear();
-                                        Navigator.of(context).push(
-                                          MaterialPageRoute<void>(
-                                            builder: (_) => TakeKeyDetailScreen(record: record),
-                                          ),
-                                        );
+                                        _openSmartDetailFromSearch(context, record);
                                       },
                                     );
                                   },
@@ -268,7 +267,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                     }
 
                                     final keys = snapshot.data ?? const [];
-                                    final borrowerGroups = _groupKeysByBorrower(keys);
+                                    final visibleKeys = filterInUseKeysForDashboard(
+                                      keys,
+                                      _completedReturnIds,
+                                    );
+                                    final borrowerGroups = _groupKeysByBorrower(visibleKeys);
 
                                     if (borrowerGroups.isEmpty) {
                                       return const _EmptyKeysState();
@@ -305,6 +308,12 @@ class _HomeScreenState extends State<HomeScreen> {
           },
         ),
       ),
+    );
+  }
+
+  void _openSmartDetailFromSearch(BuildContext context, KeyRecord record) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => SmartDetailScreen(record: record)),
     );
   }
 
@@ -358,8 +367,8 @@ class _HomeScreenState extends State<HomeScreen> {
         ? record.docId!.trim()
         : record.keyId.trim().toUpperCase();
 
-    if (_returningIds.contains(id)) {
-      debugPrint('[HOME RETURN SKIPPED] Already returning $id');
+    if (_returningIds.contains(id) || _completedReturnIds.contains(id)) {
+      debugPrint('[HOME RETURN SKIPPED] Already returning or completed $id');
       return;
     }
 
@@ -383,7 +392,9 @@ class _HomeScreenState extends State<HomeScreen> {
       debugPrint('[HOME RETURN CALLING REPOSITORY] Calling KeyRecordRepository.returnKey()');
       await KeyRecordRepository.returnKey(record);
       if (mounted) {
-        setState(() {});
+        setState(() {
+          _completedReturnIds.add(id);
+        });
       }
       debugPrint('[HOME RETURN FINISHED]');
       debugPrint('  keyId: ${record.keyId}');
@@ -1223,6 +1234,25 @@ class BorrowerKeyGroup {
 bool _isRunningInWidgetTest() {
   final binding = WidgetsBinding.instance;
   return binding.runtimeType.toString().contains('TestWidgetsFlutterBinding');
+}
+
+String _recordReturnIdentity(KeyRecord record) {
+  return (record.docId?.trim().isNotEmpty ?? false)
+      ? record.docId!.trim()
+      : record.keyId.trim().toUpperCase();
+}
+
+List<KeyRecord> filterInUseKeysForDashboard(
+  List<KeyRecord> keys,
+  Set<String> completedReturnIds,
+) {
+  if (completedReturnIds.isEmpty) {
+    return keys;
+  }
+
+  return keys.where((key) {
+    return !completedReturnIds.contains(_recordReturnIdentity(key));
+  }).toList(growable: false);
 }
 
 String _formatDate(DateTime value) {

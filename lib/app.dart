@@ -21,7 +21,16 @@ class MyApp extends StatelessWidget {
         scaffoldBackgroundColor: const Color(0xFFF4F6F8),
       ),
       routes: {
-        '/notifications': (_) => const NotificationsScreen(),
+        '/notifications': (context) {
+          final arguments = ModalRoute.of(context)?.settings.arguments;
+          if (arguments is Map) {
+            return NotificationsScreen(
+              initialPayload: Map<String, dynamic>.from(arguments as Map),
+            );
+          }
+
+          return const NotificationsScreen();
+        },
       },
       home: _isRunningInWidgetTest() ? const HomeScreen() : const SplashScreen(),
     );

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -18,6 +20,7 @@ class SmartDetailScreen extends StatefulWidget {
 class _SmartDetailScreenState extends State<SmartDetailScreen> {
   late KeyRecord _currentRecord;
   bool _isBusy = false;
+  StreamSubscription<List<KeyRecord>>? _keysSubscription;
 
   static const List<String> _statusOptions = [
     'Available',
@@ -32,10 +35,88 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
     'High Risk',
   ];
 
+  static const List<String> _locationOptions = [
+    'Mall',
+    'Office Tower',
+    'Hotel',
+    'Service Apartment',
+    'Wellness',
+  ];
+
   @override
   void initState() {
     super.initState();
     _currentRecord = widget.record;
+    _subscribeToRepositoryUpdates();
+  }
+
+  @override
+  void dispose() {
+    _keysSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _subscribeToRepositoryUpdates() {
+    _keysSubscription?.cancel();
+    _keysSubscription = KeyRecordRepository.watchAllKeys().listen((keys) {
+      if (!mounted) {
+        return;
+      }
+
+      final latest = keys.where((item) {
+        return item.keyId == _currentRecord.keyId ||
+            item.docId == _currentRecord.docId;
+      }).toList(growable: false);
+
+      if (latest.isEmpty) {
+        return;
+      }
+
+      _applyRepositoryRecord(latest.first);
+    });
+  }
+
+  void _applyRepositoryRecord(KeyRecord updatedRecord) {
+    if (!mounted) {
+      return;
+    }
+
+    final currentFingerprint = _recordFingerprint(_currentRecord);
+    final updatedFingerprint = _recordFingerprint(updatedRecord);
+    if (currentFingerprint != updatedFingerprint) {
+      setState(() => _currentRecord = updatedRecord);
+    }
+  }
+
+  Future<void> _refreshCurrentRecordFromRepository() async {
+    final latest = KeyRecordRepository.searchKeys(_currentRecord.keyId)
+        .where((item) {
+          return item.keyId == _currentRecord.keyId ||
+              (item.docId != null && item.docId == _currentRecord.docId);
+        })
+        .toList(growable: false);
+
+    if (latest.isNotEmpty) {
+      _applyRepositoryRecord(latest.first);
+      return;
+    }
+
+    await KeyRecordRepository.refreshKeysFromFirestore();
+    final refreshed = KeyRecordRepository.searchKeys(_currentRecord.keyId)
+        .where((item) {
+          return item.keyId == _currentRecord.keyId ||
+              (item.docId != null && item.docId == _currentRecord.docId);
+        })
+        .toList(growable: false);
+
+    if (refreshed.isNotEmpty) {
+      _applyRepositoryRecord(refreshed.first);
+    }
+  }
+
+  String _recordFingerprint(KeyRecord record) {
+    final metadata = record.metadata.map((key, value) => MapEntry(key, value.toString()));
+    return '${record.keyId}|${record.docId ?? ''}|${record.zone}|${record.keyName}|${record.status}|${record.borrowerName}|${record.company}|${record.purpose}|${record.category}|${metadata.toString()}';
   }
 
   @override
@@ -81,22 +162,22 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                     ).textTheme.titleMedium?.copyWith(color: Colors.black54),
                   ),
                   const SizedBox(height: 18),
-                  _ReadOnlyField(
+                  ReadOnlyDetailField(
                     label: 'Key Name',
                     value: _currentRecord.keyName,
                   ),
-                  _ReadOnlyField(
+                  ReadOnlyDetailField(
                     label: 'Category',
                     value: _currentRecord.category,
                   ),
-                  _ReadOnlyField(
+                  ReadOnlyDetailField(
                     label: 'Location',
                     value: _readMetadata('location'),
                   ),
-                  _ReadOnlyField(label: 'Level', value: _readMetadata('level')),
+                  ReadOnlyDetailField(label: 'Level', value: _readMetadata('level')),
                   if (_currentRecord.category == 'Zone' ||
                       _currentRecord.category == 'Others')
-                    _ReadOnlyField(
+                    ReadOnlyDetailField(
                       label: 'Zone',
                       value: _readMetadata(
                         'zone',
@@ -104,7 +185,7 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                       ),
                     ),
                   if (_currentRecord.category == 'Master Key')
-                    _ReadOnlyField(
+                    ReadOnlyDetailField(
                       label: 'Master Key',
                       value: _readMetadata(
                         'masterKey',
@@ -112,7 +193,7 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                       ),
                     ),
                   if (_currentRecord.category == 'Lot')
-                    _ReadOnlyField(
+                    ReadOnlyDetailField(
                       label: 'No. Lot Key',
                       value: _readMetadata(
                         'lotKey',
@@ -120,89 +201,89 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                       ),
                     ),
                   if (_currentRecord.category == 'Roller Shutter') ...[
-                    _ReadOnlyField(
+                    ReadOnlyDetailField(
                       label: 'Level / No.',
                       value: _readMetadata('rollerLevelNo'),
                     ),
-                    _ReadOnlyField(label: 'FRS', value: _readMetadata('frs')),
-                    _ReadOnlyField(
+                    ReadOnlyDetailField(label: 'FRS', value: _readMetadata('frs')),
+                    ReadOnlyDetailField(
                       label: 'No. Roller Shutter',
                       value: _readMetadata('rollerNumber'),
                     ),
                   ],
-                  _ReadOnlyField(label: 'Qty', value: _readMetadata('qty')),
+                  ReadOnlyDetailField(label: 'Qty', value: _readMetadata('qty')),
                   if (_currentRecord.category != 'Roller Shutter')
-                    _ReadOnlyField(
+                    ReadOnlyDetailField(
                       label: 'Door ID',
                       value: _readMetadata('doorId'),
                     ),
-                  _ReadOnlyField(label: 'Status', value: _currentRecord.status),
+                  ReadOnlyDetailField(label: 'Status', value: _currentRecord.status),
                   if (_currentRecord.status != 'Available' &&
                       _readMetadata('staffName').isNotEmpty)
-                    _ReadOnlyField(
+                    ReadOnlyDetailField(
                       label: 'Name Staff',
                       value: _readMetadata('staffName'),
                     ),
                   if (_currentRecord.status != 'Available' &&
                       _readMetadata('department').isNotEmpty)
-                    _ReadOnlyField(
+                    ReadOnlyDetailField(
                       label: 'Department',
                       value: _readMetadata('department'),
                     ),
                   if (_currentRecord.status != 'Available' &&
                       _readMetadata('tenantName').isNotEmpty)
-                    _ReadOnlyField(
+                    ReadOnlyDetailField(
                       label: 'Tenant\'s Name',
                       value: _readMetadata('tenantName'),
                     ),
                   if (_currentRecord.status != 'Available' &&
                       _readMetadata('purpose').isNotEmpty)
-                    _ReadOnlyField(
+                    ReadOnlyDetailField(
                       label: 'Purpose',
                       value: _readMetadata('purpose'),
                     ),
                   if (_currentRecord.status == 'Hand Over' &&
                       _readMetadata('documentReportNo').isNotEmpty)
-                    _ReadOnlyField(
+                    ReadOnlyDetailField(
                       label: 'Document report no.',
                       value: _readMetadata('documentReportNo'),
                     ),
                   if (_currentRecord.status == 'Hand Over' &&
                       _readMetadata('handoverBy').isNotEmpty)
-                    _ReadOnlyField(
+                    ReadOnlyDetailField(
                       label: 'Handover by',
                       value: _readMetadata('handoverBy'),
                     ),
                   if (_currentRecord.status == 'Hand Over' &&
                       _readMetadata('receivedBy').isNotEmpty)
-                    _ReadOnlyField(
+                    ReadOnlyDetailField(
                       label: 'Received by',
                       value: _readMetadata('receivedBy'),
                     ),
                   if (_currentRecord.status == 'Hand Over' &&
                       _readMetadata('witnessesBy').isNotEmpty)
-                    _ReadOnlyField(
+                    ReadOnlyDetailField(
                       label: 'Witnesses by',
                       value: _readMetadata('witnessesBy'),
                     ),
                   if (_currentRecord.status == 'Hand Over' &&
                       _readMetadata('handoverDate').isNotEmpty)
-                    _ReadOnlyField(
+                    ReadOnlyDetailField(
                       label: 'Handover date',
                       value: _readMetadata('handoverDate'),
                     ),
                   if (_currentRecord.status == 'Hand Over' &&
                       _readMetadata('handoverTime').isNotEmpty)
-                    _ReadOnlyField(
+                    ReadOnlyDetailField(
                       label: 'Handover time',
                       value: _readMetadata('handoverTime'),
                     ),
                   if (_readMetadata('date').isNotEmpty)
-                    _ReadOnlyField(label: 'Date', value: _readMetadata('date')),
+                    ReadOnlyDetailField(label: 'Date', value: _readMetadata('date')),
                   if (_readMetadata('time').isNotEmpty)
-                    _ReadOnlyField(label: 'Time', value: _readMetadata('time')),
+                    ReadOnlyDetailField(label: 'Time', value: _readMetadata('time')),
                   if (_readMetadata('remarks').isNotEmpty)
-                    _ReadOnlyField(
+                    ReadOnlyDetailField(
                       label: 'Remarks',
                       value: _readMetadata('remarks'),
                     ),
@@ -703,9 +784,11 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
     final keyNameController = TextEditingController(
       text: _currentRecord.keyName,
     );
-    final locationController = TextEditingController(
-      text: _readMetadata('location'),
-    );
+    final initialLocation = _readMetadata('location');
+    var selectedLocation = _locationOptions.contains(initialLocation)
+        ? initialLocation
+        : (_locationOptions.isNotEmpty ? _locationOptions.first : '');
+    final locationController = TextEditingController(text: selectedLocation);
     final levelController = TextEditingController(text: _readMetadata('level'));
     final zoneController = TextEditingController(
       text: _readMetadata('zone', fallback: _currentRecord.zone),
@@ -744,7 +827,7 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
 
       final metadata = Map<String, dynamic>.from(_currentRecord.metadata)
         ..addAll({
-          'location': locationController.text.trim(),
+          'location': selectedLocation.trim(),
           'level': levelController.text.trim(),
           'zone': zoneController.text.trim(),
           'masterKey': masterKeyController.text.trim(),
@@ -777,14 +860,13 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
           return;
         }
 
-        navigator.pop();
+        await _refreshCurrentRecordFromRepository();
 
-        final latest = KeyRecordRepository.searchKeys(
-          _currentRecord.keyId,
-        ).where((item) => item.keyId == _currentRecord.keyId).toList();
-        if (latest.isNotEmpty) {
-          setState(() => _currentRecord = latest.first);
+        if (!mounted) {
+          return;
         }
+
+        navigator.pop();
 
         messenger.showSnackBar(
           const SnackBar(content: Text('Key details updated.')),
@@ -817,9 +899,40 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                           label: 'Key Name',
                           requiredField: true,
                         ),
-                        _EditableField(
-                          controller: locationController,
-                          label: 'Location',
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: DropdownButtonFormField<String>(
+                            value: selectedLocation.isEmpty ? null : selectedLocation,
+                            decoration: InputDecoration(
+                              labelText: 'Location',
+                              filled: true,
+                              fillColor: const Color(0xFFF9FBFC),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            items: _locationOptions
+                                .map(
+                                  (location) => DropdownMenuItem(
+                                    value: location,
+                                    child: Text(location),
+                                  ),
+                                )
+                                .toList(growable: false),
+                            onChanged: (value) {
+                              if (value == null) {
+                                return;
+                              }
+                              setDialogState(() => selectedLocation = value);
+                              locationController.text = value;
+                            },
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'Required';
+                              }
+                              return null;
+                            },
+                          ),
                         ),
                         _EditableField(
                           controller: levelController,
@@ -946,21 +1059,48 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
   }
 }
 
-class _ReadOnlyField extends StatelessWidget {
-  const _ReadOnlyField({required this.label, required this.value});
+class ReadOnlyDetailField extends StatefulWidget {
+  const ReadOnlyDetailField({required this.label, required this.value, super.key});
 
   final String label;
   final String value;
+
+  @override
+  State<ReadOnlyDetailField> createState() => _ReadOnlyDetailFieldState();
+}
+
+class _ReadOnlyDetailFieldState extends State<ReadOnlyDetailField> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.value);
+  }
+
+  @override
+  void didUpdateWidget(covariant ReadOnlyDetailField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.value != widget.value && _controller.text != widget.value) {
+      _controller.text = widget.value;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextFormField(
-        initialValue: value,
+        controller: _controller,
         readOnly: true,
         decoration: InputDecoration(
-          labelText: label,
+          labelText: widget.label,
           filled: true,
           fillColor: const Color(0xFFF9FBFC),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),

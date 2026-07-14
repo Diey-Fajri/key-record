@@ -311,24 +311,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        OutlinedButton.icon(
-                          onPressed: () {
+                        _SettingsActionTile(
+                          icon: Icons.info_outline,
+                          title: 'About',
+                          onTap: () {
                             Navigator.of(context).push(
                               MaterialPageRoute<void>(builder: (_) => const AboutScreen()),
                             );
                           },
-                          icon: const Icon(Icons.info_outline),
-                          label: const Text('About'),
                         ),
                         const SizedBox(height: 8),
-                        OutlinedButton.icon(
-                          onPressed: () {
+                        _SettingsActionTile(
+                          icon: Icons.build_circle_outlined,
+                          title: 'System Info',
+                          onTap: () {
                             Navigator.of(context).push(
                               MaterialPageRoute<void>(builder: (_) => const SystemInfoScreen()),
                             );
                           },
-                          icon: const Icon(Icons.build_circle_outlined),
-                          label: const Text('System Info'),
                         ),
                       ],
                     ),
@@ -362,8 +362,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                     ),
                     const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: _refreshing
+                    _SettingsActionTile(
+                      icon: Icons.refresh,
+                      title: _refreshing ? 'Refreshing...' : 'Refresh',
+                      onTap: _refreshing
                           ? null
                           : () async {
                               final messenger = ScaffoldMessenger.of(context);
@@ -386,8 +388,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 }
                               }
                             },
-                      icon: const Icon(Icons.refresh),
-                      label: Text(_refreshing ? 'Refreshing...' : 'Refresh'),
                     ),
                   ],
                 ),
@@ -535,4 +535,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+}
+
+class _SettingsActionTile extends StatelessWidget {
+  const _SettingsActionTile({
+    required this.icon,
+    required this.title,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFB),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFFE0E5E8)),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: const Color(0xFF1E3A5F)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                title,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: Color(0xFF607D8B)),
+          ],
+        ),
+      ),
+    );
+  }
 }

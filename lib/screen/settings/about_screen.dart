@@ -148,7 +148,7 @@ class AboutScreen extends StatelessWidget {
           const SizedBox(height: 12),
           _infoRow('App Name', 'Key Record SSC'),
           _infoRow('Department', 'Unit Kawalan CCTV'),
-          _infoRow('Version', '1.0.7+8'),
+          _infoRow('Version', '1.0.9+10'),
           _infoRow('Platform', 'Android / Windows'),
           _infoRow('Developer', 'Fajri (S17380)'),
         ],

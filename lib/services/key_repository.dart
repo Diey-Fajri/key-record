@@ -813,6 +813,74 @@ class KeyRecordRepository {
     return !existed;
   }
 
+  static Future<void> updateSavedBorrowerProfile({
+    required Borrower original,
+    required Borrower updated,
+    String recordedBy = '',
+  }) async {
+    final normalizedOriginal = Borrower(
+      name: original.name.trim(),
+      icPassport: original.icPassport.trim(),
+      phone: original.phone.trim(),
+      company: original.company.trim(),
+      department: original.department.trim(),
+    );
+    final normalizedUpdated = Borrower(
+      name: updated.name.trim(),
+      icPassport: updated.icPassport.trim(),
+      phone: updated.phone.trim(),
+      company: updated.company.trim(),
+      department: updated.department.trim(),
+    );
+
+    if (normalizedUpdated.name.isEmpty) {
+      return;
+    }
+
+    final index = _savedBorrowers.indexWhere(
+      (item) => _normalizeBorrowerIdentity(item) == _normalizeBorrowerIdentity(normalizedOriginal),
+    );
+
+    if (index != -1) {
+      _savedBorrowers[index] = normalizedUpdated;
+      _savedBorrowers.sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
+      _savedBorrowersController.add(List.unmodifiable(_savedBorrowers));
+    }
+
+    if (_firestoreAvailable) {
+      await _savedPersonsCollection.doc(_savedBorrowerDocId(normalizedOriginal)).delete();
+      await _savedPersonsCollection.doc(_savedBorrowerDocId(normalizedUpdated)).set({
+        ...normalizedUpdated.toFirestore(),
+        'recordedBy': resolveActor(recordedBy),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+  }
+
+  static Future<void> deleteSavedBorrowerProfile(Borrower borrower) async {
+    final normalized = Borrower(
+      name: borrower.name.trim(),
+      icPassport: borrower.icPassport.trim(),
+      phone: borrower.phone.trim(),
+      company: borrower.company.trim(),
+      department: borrower.department.trim(),
+    );
+
+    _savedBorrowers.removeWhere(
+      (item) => _normalizeBorrowerIdentity(item) == _normalizeBorrowerIdentity(normalized),
+    );
+    _savedBorrowers.sort(
+      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+    );
+    _savedBorrowersController.add(List.unmodifiable(_savedBorrowers));
+
+    if (_firestoreAvailable) {
+      await _savedPersonsCollection.doc(_savedBorrowerDocId(normalized)).delete();
+    }
+  }
+
   static Stream<List<Borrower>> watchSavedBorrowers() {
     if (!_firestoreAvailable) {
       return _savedBorrowersController.stream;
@@ -916,6 +984,57 @@ class KeyRecordRepository {
       payload.addAll(extraData);
     }
     await _notificationsCollection.add(payload);
+  }
+
+  static KeyRecord? findKeyById(String? keyId) {
+    final normalized = (keyId ?? '').trim().toUpperCase();
+    if (normalized.isEmpty) {
+      return null;
+    }
+
+    for (final key in _keys) {
+      if (key.keyId.trim().toUpperCase() == normalized) {
+        return key;
+      }
+    }
+
+    return null;
+  }
+
+  static Future<KeyRecord?> refreshKeyFromFirestore(String keyId) async {
+    final normalizedKeyId = keyId.trim();
+    if (normalizedKeyId.isEmpty) {
+      return null;
+    }
+
+    if (!_firestoreAvailable) {
+      return findKeyById(normalizedKeyId);
+    }
+
+    try {
+      final snapshot = await _keysCollection
+          .where('keyId', isEqualTo: normalizedKeyId)
+          .limit(1)
+          .get(const GetOptions(source: Source.server));
+
+      if (snapshot.docs.isEmpty) {
+        return findKeyById(normalizedKeyId);
+      }
+
+      final refreshed = KeyRecord.fromFirestore(snapshot.docs.first);
+      final index = _keys.indexWhere((key) => key.keyId == normalizedKeyId);
+      if (index != -1) {
+        _keys[index] = refreshed;
+      } else {
+        _keys.add(refreshed);
+      }
+
+      _keysController.add(List<KeyRecord>.unmodifiable(_keys));
+      _notifyKeys();
+      return refreshed;
+    } catch (_) {
+      return findKeyById(normalizedKeyId);
+    }
   }
 
   static Stream<List<KeyRecord>> watchAllKeys() {
