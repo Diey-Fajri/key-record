@@ -1025,6 +1025,9 @@ class KeyInUseCard extends StatelessWidget {
                                     onPressed: isReturning
                                         ? null
                                         : () {
+                                            if (returningIds.contains(id)) {
+                                              return;
+                                            }
                                             onReturn(record);
                                           },
                                     style: FilledButton.styleFrom(
