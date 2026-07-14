@@ -357,7 +357,12 @@ class _HomeScreenState extends State<HomeScreen> {
     final id = (record.docId?.trim().isNotEmpty ?? false)
         ? record.docId!.trim()
         : record.keyId.trim().toUpperCase();
-    
+
+    if (_returningIds.contains(id)) {
+      debugPrint('[HOME RETURN SKIPPED] Already returning $id');
+      return;
+    }
+
     // Detailed debug log BEFORE repository call
     debugPrint('[HOME RETURN START]');
     debugPrint('  keyId: ${record.keyId}');
@@ -370,7 +375,7 @@ class _HomeScreenState extends State<HomeScreen> {
     debugPrint('  zone: ${record.zone}');
     debugPrint('  keyName: ${record.keyName}');
     debugPrint('  Record object toString: $record');
-    
+
     if (mounted) {
       setState(() => _returningIds.add(id));
     }
