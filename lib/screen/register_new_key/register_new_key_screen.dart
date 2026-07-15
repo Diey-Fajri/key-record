@@ -31,6 +31,11 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
   final _dateController = TextEditingController();
   final _timeController = TextEditingController();
   final _remarksController = TextEditingController();
+  final _remarkController = TextEditingController();
+  final _zoneFocusNode = FocusNode();
+
+  String? _zoneErrorText;
+  String? _formErrorText;
 
   String _category = 'Zone';
   String _location = 'Mall';
@@ -90,6 +95,12 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _zoneController.addListener(_validateDuplicateZone);
+  }
+
+  @override
   void dispose() {
     _zoneController.dispose();
     _masterLevelController.dispose();
@@ -109,6 +120,8 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
     _dateController.dispose();
     _timeController.dispose();
     _remarksController.dispose();
+    _remarkController.dispose();
+    _zoneFocusNode.dispose();
     super.dispose();
   }
 
@@ -239,8 +252,12 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                     if (_category == 'Zone') ...[
                       TextFormField(
                         controller: _zoneController,
-                        decoration: _inputDecoration('Zone', Icons.map),
-                        validator: _required,
+                        focusNode: _zoneFocusNode,
+                        decoration: _inputDecoration('Zone', Icons.map).copyWith(
+                          errorText: _zoneErrorText,
+                        ),
+                        onChanged: (_) => _validateDuplicateZone(),
+                        validator: _zoneFieldValidator,
                       ),
                       const SizedBox(height: 12),
                     ],
@@ -403,6 +420,23 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                         validator: _required,
                       ),
                     ],
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _remarkController,
+                      decoration: _inputDecoration('Remark', Icons.message),
+                      maxLines: 3,
+                      validator: _optional,
+                    ),
+                    if (_formErrorText != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        _formErrorText!,
+                        style: const TextStyle(
+                          color: Colors.redAccent,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 24),
                     BeautifulSubmitButton(
                       isLoading: _isSubmitting,
@@ -467,6 +501,90 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
     return null;
   }
 
+  String? _zoneFieldValidator(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'Required';
+    }
+    return _zoneErrorText;
+  }
+
+  Future<void> _validateDuplicateZone() async {
+    if (_category != 'Zone') {
+      if (_zoneErrorText != null || _formErrorText != null) {
+        if (!mounted) return;
+        setState(() {
+          _zoneErrorText = null;
+          _formErrorText = null;
+        });
+      }
+      return;
+    }
+
+    final zoneValue = _zoneController.text.trim();
+    if (zoneValue.isEmpty) {
+      if (_zoneErrorText != null || _formErrorText != null) {
+        if (!mounted) return;
+        setState(() {
+          _zoneErrorText = null;
+          _formErrorText = null;
+        });
+      }
+      return;
+    }
+
+    final levelValue = _effectiveLevel();
+    if (levelValue.isEmpty) {
+      return;
+    }
+
+    final exists = await KeyRecordRepository.doesZoneExistInLevel(
+      level: levelValue,
+      zone: zoneValue,
+    );
+
+    if (!mounted) return;
+    setState(() {
+      if (exists) {
+        _zoneErrorText = 'Zone already exists for this Level.';
+        _formErrorText = 'Zone already exists for this Level. Please use another Zone.';
+      } else {
+        _zoneErrorText = null;
+        _formErrorText = null;
+      }
+    });
+  }
+
+  Future<void> _resetForm() async {
+    _formKey.currentState?.reset();
+    setState(() {
+      _category = 'Zone';
+      _location = 'Mall';
+      _level = 'B2';
+      _status = 'Available';
+      _zoneErrorText = null;
+      _formErrorText = null;
+    });
+    _zoneController.clear();
+    _masterLevelController.clear();
+    _masterKeyController.clear();
+    _lotKeyController.clear();
+    _rollerLevelNoController.clear();
+    _frsController.clear();
+    _rollerNumberController.clear();
+    _qtyController.clear();
+    _doorIdController.clear();
+    _keyNameController.clear();
+    _descriptionController.clear();
+    _staffNameController.clear();
+    _departmentController.clear();
+    _tenantNameController.clear();
+    _purposeController.clear();
+    _dateController.clear();
+    _timeController.clear();
+    _remarksController.clear();
+    _remarkController.clear();
+  }
+
   Future<void> _submit() async {
     if (_isSubmitting) {
       return;
@@ -511,10 +629,20 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
       'date': _dateController.text.trim(),
       'time': _timeController.text.trim(),
       'remarks': _remarksController.text.trim(),
+      'remark': _remarkController.text.trim(),
     };
 
     final recordedBy = AuthService.activeUser;
     final finalStatus = status.isEmpty ? 'Available' : status;
+
+    await _validateDuplicateZone();
+    if (_zoneErrorText != null) {
+      if (!mounted) return;
+      setState(() {
+        _formErrorText = 'Zone already exists for this Level. Please use another Zone.';
+      });
+      return;
+    }
 
     setState(() => _isSubmitting = true);
     try {
@@ -543,36 +671,10 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
 
     if (!mounted) return;
 
-    showDialog<void>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Key Registered'),
-          content: Text(
-            'The key "$keyName" has been registered with status "$finalStatus".',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                Navigator.of(this.context).pushReplacement(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const EventLogScreen(),
-                  ),
-                );
-              },
-              child: const Text('View Event Log'),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                Navigator.of(context).pop();
-              },
-              child: const Text('Done'),
-            ),
-          ],
-        );
-      },
+    _resetForm();
+    FocusScope.of(context).requestFocus(_zoneFocusNode);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Key registered successfully. You can continue registering more keys.')),
     );
   }
 
@@ -672,6 +774,11 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
       _frsController.clear();
       _rollerNumberController.clear();
     }
+    if (!mounted) return;
+    setState(() {
+      _zoneErrorText = null;
+      _formErrorText = null;
+    });
   }
 
   bool _validateStatusDetails() {

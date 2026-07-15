@@ -794,6 +794,15 @@ class _KeyRecordCard extends StatelessWidget {
                       ).textTheme.bodySmall?.copyWith(color: Colors.black54),
                     ),
                   ],
+                  if (_remark(record).isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      'Remark: ${_remark(record)}',
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodySmall?.copyWith(color: Colors.black54),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -864,6 +873,14 @@ class _KeyRecordCard extends StatelessWidget {
     final fallback = record.keyName.trim();
     final number = rollerNo.isNotEmpty ? rollerNo : fallback;
     return _combineLevelAndValue(level, number);
+  }
+
+  String _remark(KeyRecord record) {
+    final remark = record.metadata['remark']?.toString().trim() ?? '';
+    if (remark.isNotEmpty) {
+      return remark;
+    }
+    return record.metadata['remarks']?.toString().trim() ?? '';
   }
 
   String _recordLevel(KeyRecord record) {

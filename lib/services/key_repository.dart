@@ -1234,6 +1234,46 @@ class KeyRecordRepository {
     return true;
   }
 
+  static String _normalizeDuplicateKeyValue(String value) {
+    return value.trim().replaceAll(RegExp(r'\s+'), '').toUpperCase();
+  }
+
+  static Future<bool> doesZoneExistInLevel({
+    required String level,
+    required String zone,
+  }) async {
+    if (!_firestoreAvailable) {
+      return false;
+    }
+
+    final normalizedTargetLevel = _normalizeDuplicateKeyValue(level);
+    final normalizedTargetZone = _normalizeDuplicateKeyValue(zone);
+    if (normalizedTargetLevel.isEmpty || normalizedTargetZone.isEmpty) {
+      return false;
+    }
+
+    final snapshot = await _keysCollection
+        .where('category', isEqualTo: 'Zone')
+        .get();
+
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final metadata = data['metadata'];
+      final existingLevel = metadata is Map
+          ? metadata['level']?.toString() ?? data['level']?.toString() ?? ''
+          : data['level']?.toString() ?? '';
+      final existingZone = metadata is Map
+          ? metadata['zone']?.toString() ?? data['zone']?.toString() ?? ''
+          : data['zone']?.toString() ?? '';
+
+      if (_normalizeDuplicateKeyValue(existingLevel) == normalizedTargetLevel &&
+          _normalizeDuplicateKeyValue(existingZone) == normalizedTargetZone) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   static List<KeyRecord> _dedupeKeysById(Iterable<KeyRecord> keys) {
     final deduped = <String, KeyRecord>{};
     for (final key in keys) {

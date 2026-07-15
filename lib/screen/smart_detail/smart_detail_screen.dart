@@ -282,6 +282,11 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                     ReadOnlyDetailField(label: 'Date', value: _readMetadata('date')),
                   if (_readMetadata('time').isNotEmpty)
                     ReadOnlyDetailField(label: 'Time', value: _readMetadata('time')),
+                  if (_readMetadata('remark').isNotEmpty)
+                    ReadOnlyDetailField(
+                      label: 'Remark',
+                      value: _readMetadata('remark'),
+                    ),
                   if (_readMetadata('remarks').isNotEmpty)
                     ReadOnlyDetailField(
                       label: 'Remarks',
