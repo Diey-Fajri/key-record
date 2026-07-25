@@ -21,6 +21,28 @@ class SystemInfoScreen extends StatelessWidget {
               _buildHeaderCard(),
               const SizedBox(height: 16),
               _buildSectionCard(
+                title: 'Maklumat Kemas Kini (v1.0.12)',
+                content: const [
+                  _BulletSection(
+                    heading: 'Penambahbaikan Sistem',
+                    items: [
+                      '• Penambahbaikan sistem pengurusan kunci.',
+                      '• Menambah sokongan pendaftaran kunci High Risk.',
+                      '• Menambah kategori Master Key.',
+                      '• Menambah kemas kini status At Maintenance dan At Management.',
+                      '• Menambah pilihan Level dalam Edit Key.',
+                      '• Memperbaiki pengurusan Remark dan penyimpanan Firestore.',
+                      '• Memperbaiki susunan kategori dan paparan All Keys.',
+                      '• Memperbaiki pengiraan indikator kunci tidak tersedia.',
+                      '• Menambah paparan Smart Detail dengan ruangan teks berbilang baris.',
+                      '• Memperbaiki perubahan Category supaya tidak mengubah Status secara automatik.',
+                      '• Meningkatkan kestabilan Event Log dan penyelarasan data.',
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _buildSectionCard(
                 title: 'Maklumat Kemas Kini (v1.0.9+10)',
                 content: const [
                   _BulletSection(
