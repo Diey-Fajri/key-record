@@ -282,15 +282,10 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                     ReadOnlyDetailField(label: 'Date', value: _readMetadata('date')),
                   if (_readMetadata('time').isNotEmpty)
                     ReadOnlyDetailField(label: 'Time', value: _readMetadata('time')),
-                  if (_readMetadata('remark').isNotEmpty)
+                  if (_readMetadata('remark', fallback: _readMetadata('remarks')).isNotEmpty)
                     ReadOnlyDetailField(
                       label: 'Remark',
-                      value: _readMetadata('remark'),
-                    ),
-                  if (_readMetadata('remarks').isNotEmpty)
-                    ReadOnlyDetailField(
-                      label: 'Remarks',
-                      value: _readMetadata('remarks'),
+                      value: _readMetadata('remark', fallback: _readMetadata('remarks')),
                     ),
                   const SizedBox(height: 18),
                   Wrap(
@@ -309,6 +304,40 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(8),
                           ),
+                        ),
+                      ),
+                      PopupMenuButton<String>(
+                        onSelected: (value) async {
+                          if (_isBusy) {
+                            return;
+                          }
+                          setState(() => _isBusy = true);
+                          try {
+                            await _openQuickStatusDialog(context, value);
+                          } finally {
+                            if (mounted) {
+                              setState(() => _isBusy = false);
+                            }
+                          }
+                        },
+                        itemBuilder: (context) => const [
+                          PopupMenuItem(
+                            value: 'At Maintenance',
+                            child: Text('At Maintenance'),
+                          ),
+                          PopupMenuItem(
+                            value: 'At Management',
+                            child: Text('At Management'),
+                          ),
+                          PopupMenuItem(
+                            value: 'High Risk',
+                            child: Text('High Risk'),
+                          ),
+                        ],
+                        child: OutlinedButton.icon(
+                          onPressed: null,
+                          icon: const Icon(Icons.flash_on_outlined),
+                          label: const Text('Quick Status'),
                         ),
                       ),
                       if (_canAddKey)
@@ -374,6 +403,18 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                             child: Text('Damaged'),
                           ),
                           const PopupMenuItem(
+                            value: 'At Maintenance',
+                            child: Text('At Maintenance'),
+                          ),
+                          const PopupMenuItem(
+                            value: 'At Management',
+                            child: Text('At Management'),
+                          ),
+                          const PopupMenuItem(
+                            value: 'High Risk',
+                            child: Text('High Risk'),
+                          ),
+                          const PopupMenuItem(
                             value: 'Delete Key',
                             child: Text(
                               'Delete Key',
@@ -403,7 +444,7 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
     );
   }
 
-  bool get _canAddKey => _currentRecord.status == 'Available';
+  bool get _canAddKey => KeyRecordRepository.isIssueEligibleStatus(_currentRecord.status);
 
   bool get _canReturn =>
       _currentRecord.status == 'In Use' || _currentRecord.status == 'Hand Over';
@@ -459,6 +500,12 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
       }
     } else if (action == 'Damaged') {
       await KeyRecordRepository.markDamaged(_currentRecord);
+    } else if (action == 'At Maintenance') {
+      await KeyRecordRepository.markAtMaintenance(_currentRecord);
+    } else if (action == 'At Management') {
+      await KeyRecordRepository.markAtManagement(_currentRecord);
+    } else if (action == 'High Risk') {
+      await KeyRecordRepository.markHighRisk(_currentRecord);
     }
 
     final latest = KeyRecordRepository.searchKeys(
@@ -483,6 +530,93 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
         ),
       );
     }
+  }
+
+  Future<void> _openQuickStatusDialog(BuildContext context, String targetStatus) async {
+    final formKey = GlobalKey<FormState>();
+    String selectedStatus = targetStatus;
+    final screenContext = context;
+    final messenger = ScaffoldMessenger.of(context);
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Quick Status Update'),
+          content: StatefulBuilder(
+            builder: (context, setDialogState) {
+              return Form(
+                key: formKey,
+                child: DropdownButtonFormField<String>(
+                  value: selectedStatus,
+                  decoration: InputDecoration(
+                    labelText: 'Status',
+                    filled: true,
+                    fillColor: const Color(0xFFF9FBFC),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  items: [
+                    targetStatus,
+                  ]
+                      .map(
+                        (status) => DropdownMenuItem(
+                          value: status,
+                          child: Text(status),
+                        ),
+                      )
+                      .toList(growable: false),
+                  onChanged: (value) {
+                    if (value == null) {
+                      return;
+                    }
+                    setDialogState(() => selectedStatus = value);
+                  },
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Required';
+                    }
+                    return null;
+                  },
+                ),
+              );
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                if (!(formKey.currentState?.validate() ?? false)) {
+                  return;
+                }
+                try {
+                  await _handleAction(screenContext, selectedStatus);
+                  if (!mounted) {
+                    return;
+                  }
+                  Navigator.of(dialogContext).pop();
+                  messenger.showSnackBar(
+                    SnackBar(content: Text('Status updated to $selectedStatus.')),
+                  );
+                } catch (error) {
+                  if (!mounted) {
+                    return;
+                  }
+                  messenger.showSnackBar(
+                    SnackBar(content: Text('Save failed: $error')),
+                  );
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<bool> _openHandoverDialog(BuildContext context) async {
@@ -794,7 +928,7 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
         ? initialLocation
         : (_locationOptions.isNotEmpty ? _locationOptions.first : '');
     final locationController = TextEditingController(text: selectedLocation);
-    final levelController = TextEditingController(text: _readMetadata('level'));
+    var selectedLevel = _readMetadata('level');
     final zoneController = TextEditingController(
       text: _readMetadata('zone', fallback: _currentRecord.zone),
     );
@@ -819,7 +953,7 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
         ? _currentRecord.status
         : 'Available';
     final remarksController = TextEditingController(
-      text: _readMetadata('remarks'),
+      text: _readMetadata('remark', fallback: _readMetadata('remarks')),
     );
 
     Future<void> save() async {
@@ -833,7 +967,7 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
       final metadata = Map<String, dynamic>.from(_currentRecord.metadata)
         ..addAll({
           'location': selectedLocation.trim(),
-          'level': levelController.text.trim(),
+          'level': selectedLevel.trim(),
           'zone': zoneController.text.trim(),
           'masterKey': masterKeyController.text.trim(),
           'lotKey': lotKeyController.text.trim(),
@@ -842,8 +976,15 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
           'rollerNumber': rollerNumberController.text.trim(),
           'qty': qtyController.text.trim(),
           'doorId': doorIdController.text.trim(),
-          'remarks': remarksController.text.trim(),
         });
+      final remarkValue = remarksController.text.trim();
+      if (remarkValue.isEmpty) {
+        metadata.remove('remark');
+        metadata.remove('remarks');
+      } else {
+        metadata['remark'] = remarkValue;
+        metadata.remove('remarks');
+      }
 
       final effectiveZone = zoneController.text.trim().isEmpty
           ? _currentRecord.zone
@@ -939,9 +1080,43 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                             },
                           ),
                         ),
-                        _EditableField(
-                          controller: levelController,
-                          label: 'Level',
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: DropdownButtonFormField<String>(
+                            value: selectedLevel.isEmpty ? null : selectedLevel,
+                            decoration: InputDecoration(
+                              labelText: 'Level',
+                              filled: true,
+                              fillColor: const Color(0xFFF9FBFC),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            items: [
+                              'B2',
+                              'B1',
+                              for (var i = 1; i <= 40; i++) 'Level $i',
+                            ]
+                                .map(
+                                  (level) => DropdownMenuItem(
+                                    value: level,
+                                    child: Text(level),
+                                  ),
+                                )
+                                .toList(growable: false),
+                            onChanged: (value) {
+                              if (value == null) {
+                                return;
+                              }
+                              setDialogState(() => selectedLevel = value);
+                            },
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'Required';
+                              }
+                              return null;
+                            },
+                          ),
                         ),
                         if (category == 'Zone' || category == 'Others')
                           _EditableField(
@@ -1020,7 +1195,7 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                         ),
                         _EditableField(
                           controller: remarksController,
-                          label: 'Remarks',
+                          label: 'Remark',
                           maxLines: 3,
                         ),
                       ],
@@ -1043,7 +1218,6 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
 
     keyNameController.dispose();
     locationController.dispose();
-    levelController.dispose();
     zoneController.dispose();
     masterKeyController.dispose();
     lotKeyController.dispose();
@@ -1120,7 +1294,7 @@ class _EditableField extends StatelessWidget {
     required this.controller,
     required this.label,
     this.requiredField = false,
-    this.maxLines = 1,
+    this.maxLines = 4,
     this.readOnly = false,
     this.keyboardType,
     this.inputFormatters,
@@ -1143,6 +1317,7 @@ class _EditableField extends StatelessWidget {
       child: TextFormField(
         controller: controller,
         maxLines: maxLines,
+        minLines: 2,
         readOnly: readOnly,
         keyboardType: keyboardType,
         inputFormatters: inputFormatters,

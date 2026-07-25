@@ -144,6 +144,33 @@ void main() {
     expect(find.text('Old value'), findsNothing);
   });
 
+  test('updateRegisteredKeyDetails stores a single remark field in metadata', () async {
+    final originalRecord = KeyRecordRepository.searchKeys('ADM-A01').firstWhere(
+      (item) => item.keyId == 'ADM-A01',
+    );
+
+    final updatedMetadata = Map<String, dynamic>.from(originalRecord.metadata)
+      ..['remark'] = 'Updated remark';
+    updatedMetadata.remove('remarks');
+
+    await KeyRecordRepository.updateRegisteredKeyDetails(
+      keyId: originalRecord.keyId,
+      zone: originalRecord.zone,
+      keyName: originalRecord.keyName,
+      category: originalRecord.category,
+      status: originalRecord.status,
+      recordedBy: 'tester',
+      metadata: updatedMetadata,
+    );
+
+    final refreshedRecord = KeyRecordRepository.searchKeys('ADM-A01').firstWhere(
+      (item) => item.keyId == 'ADM-A01',
+    );
+
+    expect(refreshedRecord.metadata['remark'], 'Updated remark');
+    expect(refreshedRecord.metadata['remarks'], isNull);
+  });
+
   testWidgets('smart detail screen refreshes after repository update', (tester) async {
     final originalRecord = KeyRecordRepository.searchKeys('ADM-A01').firstWhere(
       (item) => item.keyId == 'ADM-A01',

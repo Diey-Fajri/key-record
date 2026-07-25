@@ -30,7 +30,6 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
   final _purposeController = TextEditingController();
   final _dateController = TextEditingController();
   final _timeController = TextEditingController();
-  final _remarksController = TextEditingController();
   final _remarkController = TextEditingController();
   final _zoneFocusNode = FocusNode();
 
@@ -119,7 +118,6 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
     _purposeController.dispose();
     _dateController.dispose();
     _timeController.dispose();
-    _remarksController.dispose();
     _remarkController.dispose();
     _zoneFocusNode.dispose();
     super.dispose();
@@ -160,20 +158,9 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                       onChanged: (value) {
                         if (value != null) {
                           setState(() {
+                            final previousCategory = _category;
                             _category = value;
-                            if (_category == 'High Risk') {
-                              _status = 'High Risk';
-                            } else {
-                              _status =
-                                  _category == 'Lot' ||
-                                      _category == 'Roller Shutter'
-                                  ? _lotStatusOptions.first
-                                  : _zoneStatusOptions.first;
-                            }
-                            if (_category == 'Lot') {
-                              _level = 'B2';
-                            }
-                            _clearFieldsForCategory(_category);
+                            _clearFieldsForCategory(previousCategory, newCategory: _category);
                           });
                         }
                       },
@@ -200,7 +187,7 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                       },
                     ),
                     const SizedBox(height: 12),
-                    if (_category == 'Master Key')
+                                    if (_category == 'Master Key')
                       TextFormField(
                         controller: _masterLevelController,
                         decoration: _inputDecoration(
@@ -209,7 +196,7 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                         ),
                         validator: _optional,
                       )
-                    else
+                    else if (_category == 'Zone' || _category == 'Lot')
                       DropdownButtonFormField<String>(
                         initialValue: _level,
                         decoration: _inputDecoration('Level', Icons.stairs),
@@ -412,13 +399,6 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                         decoration: _inputDecoration('Time', Icons.access_time),
                         validator: _required,
                       ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _remarksController,
-                        decoration: _inputDecoration('Remarks', Icons.message),
-                        maxLines: 3,
-                        validator: _required,
-                      ),
                     ],
                     const SizedBox(height: 12),
                     TextFormField(
@@ -581,7 +561,6 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
     _purposeController.clear();
     _dateController.clear();
     _timeController.clear();
-    _remarksController.clear();
     _remarkController.clear();
   }
 
@@ -628,7 +607,6 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
       'purpose': _purposeController.text.trim(),
       'date': _dateController.text.trim(),
       'time': _timeController.text.trim(),
-      'remarks': _remarksController.text.trim(),
       'remark': _remarkController.text.trim(),
     };
 
@@ -755,25 +733,33 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
     return _cleanChoice(_level);
   }
 
-  void _clearFieldsForCategory(String category) {
-    if (category != 'Zone') {
+  void _clearFieldsForCategory(String previousCategory, {required String newCategory}) {
+    final clearZone = previousCategory == 'Zone' && newCategory != 'Zone';
+    final clearDescription = previousCategory != 'High Risk' && previousCategory != 'Others' &&
+        (newCategory == 'High Risk' || newCategory == 'Others');
+    final clearMaster = previousCategory == 'Master Key' && newCategory != 'Master Key';
+    final clearLot = previousCategory == 'Lot' && newCategory != 'Lot';
+    final clearRoller = previousCategory == 'Roller Shutter' && newCategory != 'Roller Shutter';
+
+    if (clearZone) {
       _zoneController.clear();
     }
-    if (category != 'High Risk' && category != 'Others') {
+    if (clearDescription) {
       _descriptionController.clear();
     }
-    if (category != 'Master Key') {
+    if (clearMaster) {
       _masterKeyController.clear();
       _masterLevelController.clear();
     }
-    if (category != 'Lot') {
+    if (clearLot) {
       _lotKeyController.clear();
     }
-    if (category != 'Roller Shutter') {
+    if (clearRoller) {
       _rollerLevelNoController.clear();
       _frsController.clear();
       _rollerNumberController.clear();
     }
+
     if (!mounted) return;
     setState(() {
       _zoneErrorText = null;
@@ -791,8 +777,7 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
     }
     if (_purposeController.text.trim().isEmpty ||
         _dateController.text.trim().isEmpty ||
-        _timeController.text.trim().isEmpty ||
-        _remarksController.text.trim().isEmpty) {
+        _timeController.text.trim().isEmpty) {
       return false;
     }
     return true;

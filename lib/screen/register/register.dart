@@ -143,7 +143,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         final allKeys = snapshot.data ?? const [];
                         final selectedIds = _selectedKeys.map((item) => item.docId).toSet();
                         final availableKeys = allKeys
-                            .where((key) => key.status == 'Available' && !selectedIds.contains(key.docId ?? key.keyId))
+                            .where((key) => repository.KeyRecordRepository.isIssueEligibleStatus(key.status) && !selectedIds.contains(key.docId ?? key.keyId))
                             .map((record) => AvailableKey(
                                   docId: record.docId ?? record.keyId,
                                   keyId: record.keyId,

@@ -181,10 +181,20 @@ class NotificationService {
   }
 
   static Future<void> subscribeToSecurityTopic() async {
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      debugPrint('Skipping Firebase Messaging topic subscription on unsupported platform: ${Platform.operatingSystem}.');
+      return;
+    }
+
     await _messaging.subscribeToTopic('security_all');
   }
 
   static Future<void> unsubscribeFromSecurityTopic() async {
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      debugPrint('Skipping Firebase Messaging topic unsubscription on unsupported platform: ${Platform.operatingSystem}.');
+      return;
+    }
+
     await _messaging.unsubscribeFromTopic('security_all');
   }
 

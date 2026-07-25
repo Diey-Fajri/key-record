@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../services/auth_service.dart';
 import '../../services/key_repository.dart';
 import '../smart_detail/smart_detail_screen.dart';
 
@@ -8,6 +9,32 @@ String _displayLevelLabel(String level) {
     return 'Level $level';
   }
   return level;
+}
+
+int allKeysFolderOrder(String label) {
+  final normalized = label.trim();
+  if (normalized == 'High Risk') {
+    return 0;
+  }
+  if (normalized == 'Master Key' || normalized == 'MASTER KEY') {
+    return 1;
+  }
+  if (normalized == 'Lot') {
+    return 2;
+  }
+  if (normalized == 'Others' || normalized == 'Others Key') {
+    return 3;
+  }
+  if (normalized.startsWith('Roller Shutter')) {
+    return 4;
+  }
+  if (normalized.startsWith('Zone ')) {
+    return 5;
+  }
+  if (normalized == 'Zone Other') {
+    return 5;
+  }
+  return 6;
 }
 
 class AllKeysScreen extends StatefulWidget {
@@ -23,31 +50,27 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
 
   static const List<String> _navigationItems = [
     'All',
+    'At Maintenance',
+    'At Management',
     'Available',
+    'Not Available',
     'In Use',
     'No Return',
-    'At Maintenance',
-    'Zone',
-    'Master Key',
-    'High Risk',
-    'Lot',
-    'Roller Shutter',
-    'Lost',
-    'Not Available',
-    'Hand Over',
     'Damaged',
     'Replaced',
-    'Others',
+    'High Risk',
+    'MASTER KEY',
+    'Zone',
+    'Others Key',
   ];
 
   static const List<String> _statusNavigationItems = [
+    'At Maintenance',
+    'At Management',
     'Available',
+    'Not Available',
     'In Use',
     'No Return',
-    'At Maintenance',
-    'Lost',
-    'Not Available',
-    'Hand Over',
     'Damaged',
     'Replaced',
   ];
@@ -169,7 +192,7 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
                       children: [
                         Expanded(
                           child: _StatTile(
-                            label: 'Total',
+                            label: 'Total Doors',
                             value: stats['total'] ?? 0,
                             accentColor: const Color(0xFF1E3A5F),
                           ),
@@ -185,7 +208,7 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
                         Container(width: 1, height: 40, color: const Color(0xFFE4E9EE)),
                         Expanded(
                           child: _StatTile(
-                            label: 'Available',
+                            label: 'Available Keys',
                             value: stats['available'] ?? 0,
                             accentColor: const Color(0xFF2E7D32),
                           ),
@@ -193,7 +216,7 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
                         Container(width: 1, height: 40, color: const Color(0xFFE4E9EE)),
                         Expanded(
                           child: _StatTile(
-                            label: 'Not Available',
+                            label: 'Not Available Keys',
                             value: stats['notAvailable'] ?? 0,
                             accentColor: const Color(0xFFEF6C00),
                           ),
@@ -313,12 +336,28 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
       return record.status == _selectedNavigation;
     }
 
-    if (_selectedNavigation == 'Others') {
-      return record.category == 'Others';
+    if (_selectedNavigation == 'Others Key') {
+      return record.category == 'Others' || record.category == 'Others Key';
+    }
+
+    if (_selectedNavigation == 'MASTER KEY' || _selectedNavigation == 'Master Key') {
+      return record.category == 'Master Key';
     }
 
     if (_selectedNavigation == 'High Risk') {
       return record.category == 'High Risk' || record.status == 'High Risk';
+    }
+
+    if (_selectedNavigation == 'At Management') {
+      return record.status == 'At Management';
+    }
+
+    if (_selectedNavigation == 'Damaged') {
+      return record.status == 'Damaged';
+    }
+
+    if (_selectedNavigation == 'Replaced') {
+      return record.status == 'Replaced';
     }
 
     if (_selectedNavigation == 'Zone') {
@@ -345,7 +384,7 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
       'total': keys.length,
       'inUse': keys.where((record) => record.status == 'In Use').length,
       'available': keys.where((record) => record.status == 'Available').length,
-      'notAvailable': keys.where((record) => record.status == 'Not Available').length,
+      'notAvailable': keys.where((record) => KeyRecordRepository.isNotAvailableStatus(record.status)).length,
     };
   }
 
@@ -649,6 +688,10 @@ class _LevelSection extends StatelessWidget {
       return _zoneFolderLabel(record);
     }
 
+    if (record.category == 'Master Key') {
+      return 'MASTER KEY';
+    }
+
     if (record.category == 'Roller Shutter') {
       return levelLabel == 'Other'
           ? 'Roller Shutter'
@@ -676,24 +719,7 @@ class _LevelSection extends StatelessWidget {
     return 'Zone Other';
   }
 
-  int _folderOrder(String label) {
-    if (label.startsWith('Zone ')) {
-      return 0;
-    }
-    if (label.startsWith('Roller Shutter')) {
-      return 1;
-    }
-    if (label == 'Master Key') {
-      return 2;
-    }
-    if (label == 'Lot') {
-      return 3;
-    }
-    if (label == 'Others') {
-      return 4;
-    }
-    return 5;
-  }
+  int _folderOrder(String label) => allKeysFolderOrder(label);
 }
 
 class _FolderGroupCard extends StatelessWidget {
@@ -710,38 +736,41 @@ class _FolderGroupCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: const Color(0xFFDCE3E7)),
       ),
-      child: ExpansionTile(
-        tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-        childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-        leading: const Icon(Icons.folder_outlined, color: Color(0xFF1E3A5F)),
-        title: Text(
-          label,
-          style: Theme.of(
-            context,
-          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-        ),
-        trailing: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: const Color(0xFFE8F1F8),
-            borderRadius: BorderRadius.circular(100),
+      child: Material(
+        color: Colors.transparent,
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+          childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+          leading: const Icon(Icons.folder_outlined, color: Color(0xFF1E3A5F)),
+          title: Text(
+            label,
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
           ),
-          child: Text(
-            '${records.length}',
-            style: const TextStyle(
-              color: Color(0xFF1E3A5F),
-              fontWeight: FontWeight.w700,
+          trailing: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE8F1F8),
+              borderRadius: BorderRadius.circular(100),
+            ),
+            child: Text(
+              '${records.length}',
+              style: const TextStyle(
+                color: Color(0xFF1E3A5F),
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
+          children: records
+              .map(
+                (record) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _KeyRecordCard(record: record),
+                ),
+              )
+              .toList(growable: false),
         ),
-        children: records
-            .map(
-              (record) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: _KeyRecordCard(record: record),
-              ),
-            )
-            .toList(growable: false),
       ),
     );
   }
@@ -806,6 +835,32 @@ class _KeyRecordCard extends StatelessWidget {
                 ],
               ),
             ),
+            IconButton(
+              tooltip: 'Edit Remark',
+              icon: const Icon(Icons.edit_note_outlined, color: Color(0xFF1E3A5F)),
+              onPressed: () => _editRemark(context),
+            ),
+            PopupMenuButton<String>(
+              tooltip: 'Quick Status',
+              onSelected: (value) async {
+                await _openQuickStatusDialog(context, value);
+              },
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                  value: 'At Maintenance',
+                  child: Text('At Maintenance'),
+                ),
+                PopupMenuItem(
+                  value: 'At Management',
+                  child: Text('At Management'),
+                ),
+                PopupMenuItem(
+                  value: 'High Risk',
+                  child: Text('High Risk'),
+                ),
+              ],
+              child: const Icon(Icons.flash_on_outlined, color: Color(0xFF1E3A5F)),
+            ),
             _StatusChip(status: record.status),
             const SizedBox(width: 6),
             const Icon(Icons.chevron_right, color: Color(0xFF607D8B)),
@@ -813,6 +868,172 @@ class _KeyRecordCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _openQuickStatusDialog(BuildContext context, String targetStatus) async {
+    final formKey = GlobalKey<FormState>();
+    String selectedStatus = targetStatus;
+    final messenger = ScaffoldMessenger.of(context);
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Quick Status Update'),
+          content: StatefulBuilder(
+            builder: (context, setDialogState) {
+              return Form(
+                key: formKey,
+                child: DropdownButtonFormField<String>(
+                  value: selectedStatus,
+                  decoration: InputDecoration(
+                    labelText: 'Status',
+                    filled: true,
+                    fillColor: const Color(0xFFF9FBFC),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  items: [targetStatus]
+                      .map(
+                        (status) => DropdownMenuItem(
+                          value: status,
+                          child: Text(status),
+                        ),
+                      )
+                      .toList(growable: false),
+                  onChanged: (value) {
+                    if (value == null) {
+                      return;
+                    }
+                    setDialogState(() => selectedStatus = value);
+                  },
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Required';
+                    }
+                    return null;
+                  },
+                ),
+              );
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                if (!(formKey.currentState?.validate() ?? false)) {
+                  return;
+                }
+
+                try {
+                  switch (selectedStatus) {
+                    case 'At Maintenance':
+                      await KeyRecordRepository.markAtMaintenance(record);
+                      break;
+                    case 'At Management':
+                      await KeyRecordRepository.markAtManagement(record);
+                      break;
+                    case 'High Risk':
+                      await KeyRecordRepository.markHighRisk(record);
+                      break;
+                  }
+                  if (!context.mounted) {
+                    return;
+                  }
+                  Navigator.of(dialogContext).pop();
+                  messenger.showSnackBar(
+                    SnackBar(content: Text('Status updated to $selectedStatus.')),
+                  );
+                } catch (error) {
+                  if (!context.mounted) {
+                    return;
+                  }
+                  messenger.showSnackBar(
+                    SnackBar(content: Text('Save failed: $error')),
+                  );
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _editRemark(BuildContext context) async {
+    final controller = TextEditingController(text: _remark(record));
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Edit Remark'),
+          content: TextField(
+            controller: controller,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              labelText: 'Remark',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final metadata = Map<String, dynamic>.from(record.metadata);
+                final remarkValue = controller.text.trim();
+                if (remarkValue.isEmpty) {
+                  metadata.remove('remark');
+                  metadata.remove('remarks');
+                } else {
+                  metadata['remark'] = remarkValue;
+                  metadata.remove('remarks');
+                }
+
+                try {
+                  await KeyRecordRepository.updateRegisteredKeyDetails(
+                    keyId: record.keyId,
+                    zone: record.zone,
+                    keyName: record.keyName,
+                    category: record.category,
+                    status: record.status,
+                    recordedBy: AuthService.activeUser,
+                    metadata: metadata,
+                  );
+                  if (!context.mounted) {
+                    return;
+                  }
+                  navigator.pop();
+                  messenger.showSnackBar(
+                    const SnackBar(content: Text('Remark updated.')),
+                  );
+                } catch (error) {
+                  if (!context.mounted) {
+                    return;
+                  }
+                  messenger.showSnackBar(
+                    SnackBar(content: Text('Save failed: $error')),
+                  );
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+
+    controller.dispose();
   }
 
   String _topKeyLabel(KeyRecord record) {
@@ -956,6 +1177,10 @@ class _StatusChip extends StatelessWidget {
         ? const Color(0xFFE9EEF6)
         : status == 'Damaged' || status == 'Replaced'
         ? const Color(0xFFFFF3E0)
+        : status == 'At Maintenance' || status == 'At Management'
+        ? const Color(0xFFE9F0F7)
+        : status == 'High Risk'
+        ? const Color(0xFFFFF8E1)
         : status == 'Not Available'
         ? const Color(0xFFFFF4E5)
         : const Color(0xFFFFE5E5);
@@ -968,6 +1193,10 @@ class _StatusChip extends StatelessWidget {
         ? const Color(0xFF1E3A5F)
         : status == 'Damaged' || status == 'Replaced'
         ? const Color(0xFFEF6C00)
+        : status == 'At Maintenance' || status == 'At Management'
+        ? const Color(0xFF1E3A5F)
+        : status == 'High Risk'
+        ? const Color(0xFFAF6A00)
         : status == 'Not Available'
         ? const Color(0xFF8D6E63)
         : const Color(0xFFC62828);

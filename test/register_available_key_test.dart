@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:key_record/screen/register/register.dart';
+import 'package:key_record/services/key_repository.dart';
 
 void main() {
   group('AvailableKey compact display', () {
@@ -76,6 +77,12 @@ void main() {
 
       expect(key.primaryTitle, 'High Risk Key');
       expect(key.secondaryTitle, '');
+    });
+
+    test('treats High Risk status as eligible for issue flows', () {
+      expect(KeyRecordRepository.isIssueEligibleStatus('Available'), isTrue);
+      expect(KeyRecordRepository.isIssueEligibleStatus('High Risk'), isTrue);
+      expect(KeyRecordRepository.isIssueEligibleStatus('In Use'), isFalse);
     });
   });
 }

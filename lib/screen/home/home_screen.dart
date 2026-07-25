@@ -113,20 +113,30 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _checkAndPromptForUpdate() async {
     final service = _appUpdateService;
-    if (service == null) {
+    if (service == null || !mounted) {
       return;
     }
 
-    final info = await PackageInfo.fromPlatform();
-    final result = await service.checkForUpdate(currentVersion: info.version);
-    if (!mounted || !result.isUpdateAvailable) {
-      return;
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final result = await service.checkForUpdate(currentVersion: info.version);
+      if (!mounted || !result.isUpdateAvailable) {
+        return;
+      }
+
+      if (result.isForceUpdate) {
+        debugPrint('Skipping force-update dialog on startup to avoid blocking the dashboard UI.');
+        return;
+      }
+
+      await showAppUpdateDialog(
+        context: context,
+        result: result,
+        appUpdateService: service,
+      );
+    } catch (error) {
+      debugPrint('Update check failed: $error');
     }
-    await showAppUpdateDialog(
-      context: context,
-      result: result,
-      appUpdateService: service,
-    );
   }
 
   @override
@@ -1018,6 +1028,14 @@ class KeyInUseCard extends StatelessWidget {
                                   .textTheme
                                   .bodySmall
                                   ?.copyWith(color: Colors.black54),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Key Name: ${record.keyName.trim().isNotEmpty ? record.keyName : 'N/A'}',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(color: Colors.black87),
                             ),
                             const SizedBox(height: 4),
                             Text(

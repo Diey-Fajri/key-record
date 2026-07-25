@@ -752,7 +752,12 @@ class KeyRecordRepository {
   }
 
   static bool isNotAvailableStatus(String status) {
-    return status.trim().toLowerCase() == 'not available';
+    final normalized = status.trim().toLowerCase();
+    return normalized == 'not available' ||
+        normalized == 'at management' ||
+        normalized == 'at maintenance' ||
+        normalized == 'lost' ||
+        normalized == 'damaged';
   }
 
   static String _normalizeBorrowerIdentity(Borrower borrower) {
@@ -1300,8 +1305,13 @@ class KeyRecordRepository {
     return deduped.values.toList(growable: false);
   }
 
+  static bool isIssueEligibleStatus(String status) {
+    final normalized = status.trim();
+    return normalized == 'Available' || normalized == 'High Risk';
+  }
+
   static List<KeyRecord> get availableKeys {
-    return _keys.where((key) => key.status == 'Available').toList();
+    return _keys.where((key) => isIssueEligibleStatus(key.status)).toList();
   }
 
   static List<KeyRecord> searchAvailableKeys(String query) {
@@ -1355,7 +1365,7 @@ class KeyRecordRepository {
             metadata['staffName']?.toString() ?? '',
             metadata['othersName']?.toString() ?? '',
             metadata['department']?.toString() ?? '',
-            metadata['remarks']?.toString() ?? '',
+            metadata['remark']?.toString() ?? metadata['remarks']?.toString() ?? '',
           ];
           final haystack = parts.join(' ').toLowerCase();
           return haystack.contains(normalized);
@@ -1703,49 +1713,30 @@ class KeyRecordRepository {
   }
 
   static Future<void> markAtMaintenance(KeyRecord record) async {
-    final index = _indexForRecord(record);
-    if (index == -1) {
-      return;
-    }
-
-    _keys[index] = _keys[index].copyWith(status: 'At Maintenance');
-    final event = EventLog(
-      action: 'At Maintenance',
-      keyId: _keys[index].keyId,
-      keyName: _keys[index].keyName,
-      borrowerName: _keys[index].borrowerName,
-      icPassport: _keys[index].icPassport,
-      phoneNumber: _keys[index].phoneNumber,
-      company: _keys[index].company,
-      purpose: _keys[index].purpose,
-      dateTimeTaken: _keys[index].takenAt,
-      dateTimeReturned: null,
+    await _updateKeyStatus(
+      record,
       status: 'At Maintenance',
-      lose: false,
+      action: 'At Maintenance',
       actor: resolveActor(null),
     );
-    await _appendEvent(event);
+  }
 
-    if (_firestoreAvailable) {
-      try {
-        await _saveKey(_keys[index]);
-        await _saveNotification(
-          action: 'At Maintenance',
-          title: 'Key Under Maintenance',
-          body:
-              'From: ${resolveActor(null)}\nKey ${_keys[index].zone}/${_keys[index].keyName} is now under maintenance.',
-          keyId: _keys[index].keyId,
-          category: _keys[index].category,
-          recordedBy: resolveActor(null),
-          audience: 'allMembers',
-          type: 'at_maintenance',
-        );
-      } catch (_) {
-        // Keep the key update logic intact; skip notification if Firestore write fails.
-      }
-    }
+  static Future<void> markAtManagement(KeyRecord record) async {
+    await _updateKeyStatus(
+      record,
+      status: 'At Management',
+      action: 'At Management',
+      actor: resolveActor(null),
+    );
+  }
 
-    _notifyKeys();
+  static Future<void> markHighRisk(KeyRecord record) async {
+    await _updateKeyStatus(
+      record,
+      status: 'High Risk',
+      action: 'High Risk',
+      actor: resolveActor(null),
+    );
   }
 
   static Future<void> markLost(KeyRecord record) async {
