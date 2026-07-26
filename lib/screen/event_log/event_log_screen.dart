@@ -431,9 +431,10 @@ class _EventLogScreenState extends State<EventLogScreen> {
         xls.TextCellValue('Purpose'),
         xls.TextCellValue('In Use Time'),
         xls.TextCellValue('Date Taken'),
+        xls.TextCellValue('Issue By'),
         xls.TextCellValue('Returned Time'),
         xls.TextCellValue('Date Returned'),
-        xls.TextCellValue('Issue / Received By'),
+        xls.TextCellValue('Received By'),
       ],
     );
 
@@ -450,15 +451,16 @@ class _EventLogScreenState extends State<EventLogScreen> {
           xls.TextCellValue(rowData.purpose),
           xls.TextCellValue(rowData.takenAt == null ? '' : _formatTime(rowData.takenAt!)),
           xls.TextCellValue(rowData.takenAt == null ? '' : _formatDate(rowData.takenAt!)),
+          xls.TextCellValue(rowData.issueBy),
           xls.TextCellValue(rowData.returnedAt == null ? '' : _formatTime(rowData.returnedAt!)),
           xls.TextCellValue(rowData.returnedAt == null ? '' : _formatDate(rowData.returnedAt!)),
-          xls.TextCellValue(rowData.receivedBy.isNotEmpty ? rowData.receivedBy : rowData.issueBy),
+          xls.TextCellValue(rowData.receivedBy),
         ],
       );
     }
 
     try {
-      final filename = 'event_log_${DateTime.now().millisecondsSinceEpoch}.xlsx';
+      final filename = 'key record ${_exportFilenameDateRange(events)}.xlsx';
       final workbookBytes = workbook.encode();
       if (workbookBytes == null) {
         throw Exception('Failed to generate Excel file');
@@ -607,6 +609,36 @@ class _EventLogScreenState extends State<EventLogScreen> {
 
   String _formatTime(DateTime value) {
     return '${value.hour.toString().padLeft(2, '0')}${value.minute.toString().padLeft(2, '0')}hrs';
+  }
+
+  String _exportFilenameDateRange(List<EventLog> events) {
+    final fromDate = _fromDate ?? _minTakenDate(events);
+    final toDate = _toDate ?? _maxTakenDate(events);
+    final from = _formatDateForFilename(fromDate);
+    final to = _formatDateForFilename(toDate);
+    return '$from to $to';
+  }
+
+  String _formatDateForFilename(DateTime value) {
+    return '${value.day.toString().padLeft(2, '0')}-${value.month.toString().padLeft(2, '0')}-${value.year}';
+  }
+
+  DateTime _minTakenDate(List<EventLog> events) {
+    if (events.isEmpty) {
+      return DateTime.now();
+    }
+    return events.map((event) => event.dateTimeTaken).reduce(
+      (value, element) => value.isBefore(element) ? value : element,
+    );
+  }
+
+  DateTime _maxTakenDate(List<EventLog> events) {
+    if (events.isEmpty) {
+      return DateTime.now();
+    }
+    return events.map((event) => event.dateTimeTaken).reduce(
+      (value, element) => value.isAfter(element) ? value : element,
+    );
   }
 
   List<_ExportTransactionRow> _buildExportRows(List<EventLog> events) {
