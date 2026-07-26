@@ -43,7 +43,7 @@ class SystemInfoScreen extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               _buildSectionCard(
-                title: 'Maklumat Kemas Kini (v1.0.9+10)',
+                title: 'Maklumat Kemas Kini (v1.0.13+14)',
                 content: const [
                   _BulletSection(
                     heading: 'Penambahbaikan',

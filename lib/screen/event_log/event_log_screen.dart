@@ -19,6 +19,8 @@ class _ExportTransactionRow {
     required this.keyName,
     required this.purpose,
     required this.takenAt,
+    required this.issueBy,
+    required this.receivedBy,
   });
 
   final DateTime date;
@@ -30,6 +32,8 @@ class _ExportTransactionRow {
   final String keyName;
   final String purpose;
   final DateTime? takenAt;
+  final String issueBy;
+  String receivedBy;
   DateTime? returnedAt;
 }
 
@@ -429,6 +433,7 @@ class _EventLogScreenState extends State<EventLogScreen> {
         xls.TextCellValue('Date Taken'),
         xls.TextCellValue('Returned Time'),
         xls.TextCellValue('Date Returned'),
+        xls.TextCellValue('Issue / Received By'),
       ],
     );
 
@@ -447,6 +452,7 @@ class _EventLogScreenState extends State<EventLogScreen> {
           xls.TextCellValue(rowData.takenAt == null ? '' : _formatDate(rowData.takenAt!)),
           xls.TextCellValue(rowData.returnedAt == null ? '' : _formatTime(rowData.returnedAt!)),
           xls.TextCellValue(rowData.returnedAt == null ? '' : _formatDate(rowData.returnedAt!)),
+          xls.TextCellValue(rowData.receivedBy.isNotEmpty ? rowData.receivedBy : rowData.issueBy),
         ],
       );
     }
@@ -626,13 +632,19 @@ class _EventLogScreenState extends State<EventLogScreen> {
               continue;
             }
             candidate.returnedAt = event.dateTimeReturned ?? event.dateTimeTaken;
+            candidate.receivedBy = event.actor.trim().isNotEmpty ? event.actor : 'System';
             matchedCandidate = true;
             break;
           }
         }
 
         if (!matchedCandidate && _hasExportIdentity(event)) {
-          rows.add(_createExportRow(event, takenAt: null, returnedAt: event.dateTimeReturned ?? event.dateTimeTaken));
+          rows.add(_createExportRow(
+            event,
+            takenAt: null,
+            returnedAt: event.dateTimeReturned ?? event.dateTimeTaken,
+            receivedBy: event.actor.trim().isNotEmpty ? event.actor : 'System',
+          ));
         }
         continue;
       }
@@ -689,6 +701,7 @@ class _EventLogScreenState extends State<EventLogScreen> {
     EventLog event, {
     required DateTime? takenAt,
     DateTime? returnedAt,
+    String receivedBy = '',
   }) {
     final effectiveDate = returnedAt ?? takenAt ?? event.dateTimeReturned ?? event.dateTimeTaken;
     final row = _ExportTransactionRow(
@@ -701,6 +714,8 @@ class _EventLogScreenState extends State<EventLogScreen> {
       keyName: _keyForTable(event),
       purpose: _purposeForExport(event),
       takenAt: takenAt,
+      issueBy: event.actor.trim().isNotEmpty ? event.actor : 'System',
+      receivedBy: receivedBy,
     );
     row.returnedAt = returnedAt;
     return row;
