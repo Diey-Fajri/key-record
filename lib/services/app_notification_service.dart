@@ -59,15 +59,24 @@ class AppNotificationService {
       return;
     }
 
-    _subscription = FirebaseFirestore.instance
-        .collection('notifications')
-        .where('audience', isEqualTo: 'allMembers')
-        .orderBy('createdAt', descending: true)
-        .limit(30)
-        .snapshots()
-        .listen(_handleSnapshot, onError: (error) {
-      debugPrint('Notification listener error: $error');
-    });
+    try {
+      _subscription = FirebaseFirestore.instance
+          .collection('notifications')
+          .where('audience', isEqualTo: 'allMembers')
+          .orderBy('createdAt', descending: true)
+          .limit(30)
+          .snapshots()
+          .listen(
+            _handleSnapshot,
+            onError: (error) {
+              debugPrint('Notification listener error: $error');
+            },
+          );
+    } catch (error) {
+      debugPrint('Notification service start failed: $error');
+      _subscription = null;
+      _initialized = false;
+    }
   }
 
   static Future<void> stop() async {
@@ -184,6 +193,17 @@ class AppNotificationService {
               behavior: SnackBarBehavior.floating,
             ),
           );
+        } else if (appNavigatorKey.currentState != null) {
+          final rootContext = appNavigatorKey.currentState!.overlay?.context;
+          if (rootContext != null && rootContext.mounted) {
+            ScaffoldMessenger.of(rootContext).showSnackBar(
+              SnackBar(
+                content: Text('$title\n$body'),
+                duration: const Duration(seconds: 4),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
         }
         if (!completer.isCompleted) {
           completer.complete();

@@ -25,15 +25,25 @@ class NotificationService {
   static const String _channelDescription =
       'Notifications for all security updates.';
 
+  static bool get _isSupportedMessagingPlatform => Platform.isAndroid || Platform.isIOS;
+
   static Future<void> initialize({
     required GlobalKey<NavigatorState> navigatorKey,
   }) async {
     _navigatorKey = navigatorKey;
     await _initializeLocalNotifications();
 
-    await _requestPermission();
-    await _configureFirebaseMessagingHandlers();
-    await registerCurrentDeviceToken();
+    if (_isSupportedMessagingPlatform) {
+      try {
+        await _requestPermission();
+        await _configureFirebaseMessagingHandlers();
+        await registerCurrentDeviceToken();
+      } catch (error) {
+        debugPrint('FCM initialization failed: $error');
+      }
+    } else {
+      debugPrint('Skipping FCM initialization on unsupported platform: ${Platform.operatingSystem}');
+    }
   }
 
   static Future<void> initializeForBackground() async {
@@ -87,6 +97,10 @@ class NotificationService {
   }
 
   static Future<void> _configureFirebaseMessagingHandlers() async {
+    if (!_isSupportedMessagingPlatform) {
+      return;
+    }
+
     FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
     FirebaseMessaging.onMessageOpenedApp.listen(_handleMessageOpenedApp);
     _messaging.onTokenRefresh.listen((token) async {
@@ -117,6 +131,10 @@ class NotificationService {
   }
 
   static Future<void> handleInitialMessage() async {
+    if (!_isSupportedMessagingPlatform) {
+      return;
+    }
+
     final message = await _messaging.getInitialMessage();
     if (message != null) {
       _navigateToNotificationsScreen(message.data);
@@ -199,11 +217,16 @@ class NotificationService {
   }
 
   static Future<String?> getToken() async {
+    if (!_isSupportedMessagingPlatform) {
+      return null;
+    }
+
     return await _messaging.getToken();
   }
 
   static Future<void> registerCurrentDeviceToken({String? token}) async {
     if (!Platform.isAndroid && !Platform.isIOS) {
+      debugPrint('Skipping FCM token registration on unsupported platform: ${Platform.operatingSystem}');
       return;
     }
 
@@ -215,6 +238,7 @@ class NotificationService {
 
     final user = FirebaseAuth.instance.currentUser;
     final userId = user?.uid ?? 'anonymous';
+    final userEmail = user?.email?.trim().isNotEmpty == true ? user!.email!.trim() : '';
     final system = Platform.operatingSystem;
     final deviceId = _deviceId ??= '$system-$userId';
     final currentToken = activeToken;
@@ -251,7 +275,7 @@ class NotificationService {
           'token': activeToken,
           'active': true,
           'userId': userId,
-          'userEmail': user?.email,
+          'userEmail': userEmail,
           'platform': Platform.operatingSystem,
           'deviceId': deviceId,
           'updatedAt': FieldValue.serverTimestamp(),
@@ -292,6 +316,10 @@ class NotificationService {
 }
 
 Future<void> _firebaseBackgroundMessageHandler(RemoteMessage message) async {
+  if (!Platform.isAndroid && !Platform.isIOS) {
+    return;
+  }
+
   await Firebase.initializeApp();
   await NotificationService.initializeForBackground();
   await NotificationService.showLocalNotificationForMessage(message);

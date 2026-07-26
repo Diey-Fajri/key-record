@@ -10,7 +10,7 @@ void main() {
 
     await tester.tap(find.byType(DropdownButtonFormField<String>).first);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Others').last);
+    await tester.tap(find.text('Others Key').last);
     await tester.pumpAndSettle();
 
     expect(

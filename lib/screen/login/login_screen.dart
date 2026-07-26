@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-
 import '../../services/auth_service.dart';
-import '../home/home_screen.dart';
 import 'setup_account_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -73,7 +71,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 16),
                   if (_errorMessage != null)
                     Text(
                       _errorMessage!,
@@ -96,7 +94,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   width: 20,
                                   child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                                 )
-                              : const Text('Sign In'),
+                              : const Text('Continue'),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -179,33 +177,10 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    final success = await AuthService.login(email: email, password: '');
-    if (!mounted) return;
-
-    if (success) {
-      // Reset loading state before navigating so UI doesn't remain in loading when returning.
-      if (mounted) setState(() => _isLoading = false);
-      final hasStoredCredentials = await AuthService.hasStoredCredentials();
-      if (!mounted) return;
-      if (hasStoredCredentials) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute<void>(builder: (_) => const HomeScreen()),
-        );
-      } else {
-        Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => SetupAccountScreen(initialEmail: email)),
-        );
-      }
-      return;
-    }
-
-    final attemptsMessage = AuthService.lastErrorMessage ?? (AuthService.failedAttempts >= 3
-      ? 'Multiple failed attempts. Please try again later.'
-        : 'Invalid credentials. Please try again.');
-
-    setState(() {
-      _isLoading = false;
-      _errorMessage = attemptsMessage;
-    });
+    // Navigate to existing setup/sign-in screen which handles password input.
+    setState(() => _isLoading = false);
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => SetupAccountScreen(initialEmail: email)),
+    );
   }
 }

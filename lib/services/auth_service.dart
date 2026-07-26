@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -25,7 +27,16 @@ class AuthService {
     return _prefs?.getString('storedEmail')?.trim() ?? '';
   }
 
-  static bool get _firebaseAvailable => Firebase.apps.isNotEmpty;
+  static bool get _isSupportedFirebasePlatform {
+    return kIsWeb || Platform.isAndroid || Platform.isIOS || Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+  }
+
+  static bool get _firebaseAvailable {
+    if (!_isSupportedFirebasePlatform) {
+      return false;
+    }
+    return Firebase.apps.isNotEmpty;
+  }
   static FirebaseFirestore get _firestore => FirebaseFirestore.instance;
   static FirebaseAuth get _auth => FirebaseAuth.instance;
 
@@ -267,7 +278,7 @@ class AuthService {
     await _prefs?.setBool('authenticated', true);
     await _prefs?.setString('activeUser', _activeUser.trim());
 
-    if (_authenticated) {
+    if (_authenticated && _isSupportedFirebasePlatform) {
       try {
         await NotificationService.subscribeToSecurityTopic();
         await NotificationService.registerCurrentDeviceToken();
@@ -305,6 +316,11 @@ class AuthService {
     final normalizedEmail = _normalizeEmail(email);
     if (normalizedEmail.isEmpty) {
       lastErrorMessage = 'Please enter your email address.';
+      return false;
+    }
+
+    if (!_firebaseAvailable) {
+      lastErrorMessage = 'Firebase is not available right now.';
       return false;
     }
 

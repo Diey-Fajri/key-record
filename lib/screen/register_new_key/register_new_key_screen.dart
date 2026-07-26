@@ -23,6 +23,7 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
   final _qtyController = TextEditingController();
   final _doorIdController = TextEditingController();
   final _keyNameController = TextEditingController();
+  final _labelNoController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _staffNameController = TextEditingController();
   final _departmentController = TextEditingController();
@@ -47,8 +48,7 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
     'Master Key',
     'Lot',
     'Roller Shutter',
-    'High Risk',
-    'Others',
+    'Others Key',
   ];
 
   static const List<String> _locations = [
@@ -111,6 +111,7 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
     _qtyController.dispose();
     _doorIdController.dispose();
     _keyNameController.dispose();
+    _labelNoController.dispose();
     _descriptionController.dispose();
     _staffNameController.dispose();
     _departmentController.dispose();
@@ -248,7 +249,16 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
                       ),
                       const SizedBox(height: 12),
                     ],
-                    if (_category == 'High Risk' || _category == 'Others') ...[
+                    if (_category == 'High Risk' || _category == 'Others Key') ...[
+                      TextFormField(
+                        controller: _labelNoController,
+                        decoration: _inputDecoration(
+                          'Label No',
+                          Icons.tag,
+                        ),
+                        validator: _optional,
+                      ),
+                      const SizedBox(height: 12),
                       TextFormField(
                         controller: _descriptionController,
                         decoration: _inputDecoration(
@@ -450,7 +460,7 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
         'Level 8',
       ];
     }
-    return ['B2', 'B1', for (var i = 1; i <= 40; i++) 'Level $i'];
+    return ['B2', 'B1', for (var i = 1; i <= 41; i++) 'Level $i'];
   }
 
   List<String> _getStatusOptions() {
@@ -554,6 +564,7 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
     _qtyController.clear();
     _doorIdController.clear();
     _keyNameController.clear();
+    _labelNoController.clear();
     _descriptionController.clear();
     _staffNameController.clear();
     _departmentController.clear();
@@ -594,6 +605,7 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
       'level': level,
       'doorId': _doorIdController.text.trim(),
       'zone': _resolvePrimaryZoneValue(),
+      'labelNo': _labelNoController.text.trim(),
       'description': _descriptionController.text.trim(),
       'masterKey': _masterKeyController.text.trim(),
       'lotKey': _lotKeyController.text.trim(),
@@ -662,7 +674,7 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
         .replaceAll(' ', '')
         .toUpperCase();
     final baseId =
-        _category == 'Zone' || _category == 'Others' || _category == 'High Risk'
+        _category == 'Zone' || _category == 'Others Key' || _category == 'High Risk'
         ? [
             if (levelToken.isNotEmpty) levelToken,
             _zoneController.text.trim(),
@@ -704,7 +716,7 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
   }
 
   String _resolvePrimaryZoneValue() {
-    if (_category == 'High Risk' || _category == 'Others') {
+    if (_category == 'High Risk' || _category == 'Others Key') {
       return _descriptionController.text.trim().isNotEmpty
           ? _descriptionController.text.trim()
           : _location;
@@ -735,8 +747,8 @@ class _RegisterNewKeyScreenState extends State<RegisterNewKeyScreen> {
 
   void _clearFieldsForCategory(String previousCategory, {required String newCategory}) {
     final clearZone = previousCategory == 'Zone' && newCategory != 'Zone';
-    final clearDescription = previousCategory != 'High Risk' && previousCategory != 'Others' &&
-        (newCategory == 'High Risk' || newCategory == 'Others');
+    final clearDescription = previousCategory != 'High Risk' && previousCategory != 'Others Key' &&
+        (newCategory == 'High Risk' || newCategory == 'Others Key');
     final clearMaster = previousCategory == 'Master Key' && newCategory != 'Master Key';
     final clearLot = previousCategory == 'Lot' && newCategory != 'Lot';
     final clearRoller = previousCategory == 'Roller Shutter' && newCategory != 'Roller Shutter';

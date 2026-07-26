@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../services/key_repository.dart';
 import '../smart_detail/smart_detail_screen.dart';
@@ -31,11 +32,53 @@ class NotificationsScreen extends StatefulWidget {
 class _NotificationsScreenState extends State<NotificationsScreen> {
   String? _selectedKeyId;
   bool _isHandlingTap = false;
+  Set<String> _locallyDeleted = {};
+  static const _prefsKey = 'deleted_notifications';
 
   @override
   void initState() {
     super.initState();
     _selectedKeyId = extractNotificationKeyId(widget.initialPayload);
+    _loadLocallyDeleted();
+  }
+
+  Future<void> _loadLocallyDeleted() async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = prefs.getStringList(_prefsKey) ?? <String>[];
+    if (!mounted) return;
+    setState(() => _locallyDeleted = Set<String>.from(list));
+  }
+
+  Future<void> _saveLocallyDeleted() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_prefsKey, _locallyDeleted.toList());
+  }
+
+  Future<void> _clearLocalHistory() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Clear local history'),
+        content: const Text('This will remove notifications only on this device. Continue?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(c).pop(false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.of(c).pop(true), child: const Text('Clear')),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+    setState(() {
+      _locallyDeleted.clear();
+    });
+    await _saveLocallyDeleted();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Local notification history cleared')));
+  }
+
+  Future<void> _deleteLocalNotification(String id) async {
+    setState(() => _locallyDeleted.add(id));
+    await _saveLocallyDeleted();
   }
 
   @override
@@ -43,7 +86,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     super.didChangeDependencies();
     final arguments = ModalRoute.of(context)?.settings.arguments;
     if (arguments is Map) {
-      final payload = Map<String, dynamic>.from(arguments as Map);
+      final payload = Map<String, dynamic>.from(arguments);
       final keyId = extractNotificationKeyId(payload);
       if (keyId != null && keyId != _selectedKeyId) {
         setState(() => _selectedKeyId = keyId);
@@ -58,6 +101,18 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         title: const Text('Notification History'),
         backgroundColor: const Color(0xFF263238),
         foregroundColor: Colors.white,
+        actions: [
+          PopupMenuButton<String>(
+            itemBuilder: (_) => [
+              const PopupMenuItem(value: 'clear_local', child: Text('Clear local history')),
+            ],
+            onSelected: (v) {
+              if (v == 'clear_local') {
+                _clearLocalHistory();
+              }
+            },
+          ),
+        ],
       ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: FirebaseFirestore.instance
@@ -73,7 +128,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             return const Center(child: Text('No notifications yet.'));
           }
 
-          final docs = snapshot.data!.docs;
+          final docs = snapshot.data!.docs.where((d) => !_locallyDeleted.contains(d.id)).toList();
           return ListView.separated(
             padding: const EdgeInsets.all(16),
             itemCount: docs.length,
@@ -97,36 +152,64 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               final formattedDate = _formatTimestamp(createdAt);
               final isSelected = keyId != null && keyId == _selectedKeyId;
 
-              return Material(
-                color: Colors.transparent,
-                child: Card(
-                  elevation: isSelected ? 3 : 1,
-                  color: isSelected ? const Color(0xFFE8F5E9) : null,
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.all(16),
-                    title: Text(
-                      title,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
+              return Dismissible(
+                key: ValueKey(docs[index].id),
+                direction: DismissDirection.endToStart,
+                background: Container(
+                  color: Colors.redAccent,
+                  alignment: Alignment.centerRight,
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: const Icon(Icons.delete_forever, color: Colors.white),
+                ),
+                confirmDismiss: (_) async {
+                  // only delete locally
+                  final confirm = await showDialog<bool>(
+                    context: context,
+                    builder: (c) => AlertDialog(
+                      title: const Text('Delete locally'),
+                      content: const Text('Remove this notification only from this device?'),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.of(c).pop(false), child: const Text('Cancel')),
+                        FilledButton(onPressed: () => Navigator.of(c).pop(true), child: const Text('Remove')),
+                      ],
                     ),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: 6),
-                      Text(message, style: Theme.of(context).textTheme.bodyMedium),
-                      const SizedBox(height: 8),
-                      Text('User: $user', style: Theme.of(context).textTheme.bodySmall),
-                      Text('Key: $keyName', style: Theme.of(context).textTheme.bodySmall),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Date: $formattedDate',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.black54,
-                        ),
+                  );
+                  if (confirm == true) {
+                    await _deleteLocalNotification(docs[index].id);
+                  }
+                  return confirm == true;
+                },
+                child: Material(
+                  color: Colors.transparent,
+                  child: Card(
+                    elevation: isSelected ? 3 : 1,
+                    color: isSelected ? const Color(0xFFE8F5E9) : null,
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.all(16),
+                      title: Text(
+                        title,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
-                    ],
-                  ),
-                    trailing: const Icon(Icons.chevron_right_outlined),
-                    onTap: _isHandlingTap ? null : () => _openRelatedKey(context, data),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 6),
+                          Text(message, style: Theme.of(context).textTheme.bodyMedium),
+                          const SizedBox(height: 8),
+                          Text('User: $user', style: Theme.of(context).textTheme.bodySmall),
+                          Text('Key: $keyName', style: Theme.of(context).textTheme.bodySmall),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Date: $formattedDate',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Colors.black54,
+                            ),
+                          ),
+                        ],
+                      ),
+                      trailing: const Icon(Icons.chevron_right_outlined),
+                      onTap: _isHandlingTap ? null : () => _openRelatedKey(context, data),
+                    ),
                   ),
                 ),
               );

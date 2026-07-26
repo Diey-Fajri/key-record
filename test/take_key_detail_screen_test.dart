@@ -212,4 +212,45 @@ void main() {
       metadata: originalRecord.metadata,
     );
   });
+
+  testWidgets('smart detail hides zone display for Others Key', (tester) async {
+    final record = KeyRecord(
+      keyId: 'OTH-TEST-999',
+      zone: 'Zone A',
+      keyName: 'Others Key Name',
+      borrowerName: 'Ali',
+      icPassport: '123',
+      phoneNumber: '012',
+      company: 'ABC',
+      purpose: 'Testing',
+      status: 'Available',
+      takenAt: DateTime(2025, 1, 1),
+      category: 'Others Key',
+      metadata: {'zone': 'Zone A', 'labelNo': 'OTH-TEST-999'},
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SmartDetailScreen(record: record),
+      ),
+    );
+
+    await tester.pump();
+
+    final zoneFields = find.byWidgetPredicate(
+      (widget) => widget is ReadOnlyDetailField && widget.label == 'Zone',
+    );
+    final rendered = zoneFields.evaluate().map((element) {
+      final widget = element.widget;
+      if (widget is ReadOnlyDetailField) {
+        return widget.label;
+      }
+      return 'unknown';
+    }).toList();
+    // ignore: avoid_print
+    print('zone fields: $rendered');
+
+    expect(zoneFields, findsNothing);
+    expect(find.text('Zone A'), findsNothing);
+  });
 }

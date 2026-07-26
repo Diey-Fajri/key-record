@@ -401,7 +401,7 @@ class _ReceivedKeyScreenState extends State<ReceivedKeyScreen> {
           'Received Key',
           <xls.CellValue>[
             xls.TextCellValue(event.keyId),
-            xls.TextCellValue(event.keyName),
+            xls.TextCellValue(KeyRecordRepository.resolveExportKeyLabel(event)),
             xls.TextCellValue(event.metadata['receivedFrom']?.toString() ?? ''),
             xls.TextCellValue(event.metadata['receivedBy']?.toString() ?? ''),
             xls.TextCellValue(event.metadata['withnessBy']?.toString() ?? ''),

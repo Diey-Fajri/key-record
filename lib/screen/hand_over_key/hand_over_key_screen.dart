@@ -759,7 +759,7 @@ class _HandOverKeyScreenState extends State<HandOverKeyScreen> {
           'Hand Over Key',
           <xls.CellValue>[
             xls.TextCellValue(event.keyId),
-            xls.TextCellValue(event.keyName),
+            xls.TextCellValue(KeyRecordRepository.resolveExportKeyLabel(event)),
             xls.TextCellValue(event.metadata['documentReportNo']?.toString() ?? ''),
             xls.TextCellValue(event.metadata['handoverBy']?.toString() ?? ''),
             xls.TextCellValue(event.metadata['receivedBy']?.toString() ?? ''),

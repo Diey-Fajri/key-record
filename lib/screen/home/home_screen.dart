@@ -28,7 +28,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  late DateTime _now;
+  final ValueNotifier<DateTime> _nowNotifier = ValueNotifier(DateTime.now());
   Timer? _clockTimer;
   final TextEditingController _searchController = TextEditingController();
   final Stream<List<KeyRecord>> _keysInUseStream =
@@ -42,7 +42,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _now = DateTime.now();
+    _nowNotifier.value = DateTime.now();
     _searchController.addListener(() {
       if (mounted) {
         setState(() {});
@@ -65,7 +65,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!_isRunningInWidgetTest()) {
       _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) {
-          setState(() => _now = DateTime.now());
+          _nowNotifier.value = DateTime.now();
         }
       });
     }
@@ -75,6 +75,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     AppNotificationService.onNotificationReceived = null;
     _clockTimer?.cancel();
+    _nowNotifier.dispose();
     _searchController.dispose();
     AppNotificationService.stop();
     super.dispose();
@@ -105,6 +106,10 @@ class _HomeScreenState extends State<HomeScreen> {
     _startupUpdateChecked = true;
 
     try {
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      if (!mounted) {
+        return;
+      }
       await _checkAndPromptForUpdate();
     } catch (error) {
       debugPrint('Startup update check failed: $error');
@@ -208,7 +213,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       // Fixed header - username, date, time
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        child: _HeaderSection(now: _now),
+                        child: ValueListenableBuilder<DateTime>(
+                          valueListenable: _nowNotifier,
+                          builder: (context, now, _) => _HeaderSection(now: now),
+                        ),
                       ),
                       // Scrollable content below header
                       Expanded(
@@ -220,29 +228,25 @@ class _HomeScreenState extends State<HomeScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                StreamBuilder<List<KeyRecord>>(
-                                  stream: KeyRecordRepository.watchAllKeys(),
-                                  builder: (context, snapshot) {
-                                    final suggestions = KeyRecordRepository.searchKeyHints(
-                                      _searchController.text,
+                                _SearchBar(
+                                  controller: _searchController,
+                                  suggestions: _searchController.text.trim().isEmpty
+                                      ? const <KeyRecord>[]
+                                      : KeyRecordRepository.searchKeyHints(
+                                          _searchController.text,
+                                        ),
+                                  onSubmitted: (value) {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => SearchScreen(
+                                          initialQuery: value.trim(),
+                                        ),
+                                      ),
                                     );
-                                    return _SearchBar(
-                                      controller: _searchController,
-                                      suggestions: suggestions,
-                                      onSubmitted: (value) {
-                                        Navigator.of(context).push(
-                                          MaterialPageRoute<void>(
-                                            builder: (_) => SearchScreen(
-                                              initialQuery: value.trim(),
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                      onSuggestionSelected: (record) {
-                                        _searchController.clear();
-                                        _openSmartDetailFromSearch(context, record);
-                                      },
-                                    );
+                                  },
+                                  onSuggestionSelected: (record) {
+                                    _searchController.clear();
+                                    _openSmartDetailFromSearch(context, record);
                                   },
                                 ),
                                 if (!isWide) ...[
@@ -265,15 +269,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                 StreamBuilder<List<KeyRecord>>(
                                   stream: _keysInUseStream,
                                   builder: (context, snapshot) {
-                                    if (snapshot.connectionState ==
-                                            ConnectionState.waiting &&
-                                        !snapshot.hasData) {
-                                      return const Center(
-                                        child: Padding(
-                                          padding: EdgeInsets.all(32),
-                                          child: CircularProgressIndicator(),
-                                        ),
-                                      );
+                                    if (snapshot.hasError) {
+                                      return const _EmptyKeysState();
                                     }
 
                                     final keys = snapshot.data ?? const [];
@@ -1298,6 +1295,5 @@ String _formatDate(DateTime value) {
 String _formatTime(DateTime value) {
   final hour = value.hour.toString().padLeft(2, '0');
   final minute = value.minute.toString().padLeft(2, '0');
-  final second = value.second.toString().padLeft(2, '0');
-  return '$hour:$minute:$second';
+  return '$hour:$minute';
 }

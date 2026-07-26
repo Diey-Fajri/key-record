@@ -244,7 +244,28 @@ class KeyRecord {
   final Map<String, dynamic> metadata;
   final String staffFrom;
 
+  static String _normalizeCategory(String? raw) {
+    final trimmed = raw?.trim() ?? '';
+    if (trimmed.toLowerCase() == 'others') {
+      return 'Others Key';
+    }
+    return trimmed;
+  }
+
   Map<String, dynamic> toMap() {
+    final effectiveCategory = _normalizeCategory(category);
+    final effectiveMetadata = Map<String, dynamic>.from(metadata);
+    if (effectiveCategory == 'Others Key') {
+      effectiveMetadata.remove('level');
+      final labelNo = effectiveMetadata['labelNo']?.toString().trim() ?? '';
+      if (labelNo.isEmpty) {
+        final keyNameValue = keyName.trim();
+        if (keyNameValue.isNotEmpty) {
+          effectiveMetadata['labelNo'] = keyNameValue;
+        }
+      }
+    }
+
     return {
       'keyId': keyId,
       'zone': zone,
@@ -256,8 +277,8 @@ class KeyRecord {
       'purpose': purpose,
       'status': status,
       'takenAt': Timestamp.fromDate(takenAt),
-      'category': category,
-      'metadata': metadata,
+      'category': effectiveCategory,
+      'metadata': effectiveMetadata,
       'staffFrom': staffFrom,
     };
   }
@@ -284,6 +305,18 @@ class KeyRecord {
     final metadata = metadataData is Map
         ? Map<String, dynamic>.from(metadataData)
         : <String, dynamic>{};
+    final normalizedCategory = _normalizeCategory(data['category'] as String? ?? '');
+
+    if (normalizedCategory == 'Others Key') {
+      metadata.remove('level');
+      final labelNo = metadata['labelNo']?.toString().trim() ?? '';
+      if (labelNo.isEmpty) {
+        final keyNameValue = (data['keyName'] as String? ?? '').trim();
+        if (keyNameValue.isNotEmpty) {
+          metadata['labelNo'] = keyNameValue;
+        }
+      }
+    }
 
     return KeyRecord(
       docId: doc.id,
@@ -297,7 +330,7 @@ class KeyRecord {
       purpose: isAvailable ? '' : (data['purpose'] as String? ?? ''),
       status: status,
       takenAt: takenAt,
-      category: data['category'] as String? ?? '',
+      category: normalizedCategory,
       metadata: metadata,
       staffFrom: data['staffFrom'] as String? ?? '',
     );
@@ -510,6 +543,169 @@ class KeyRecordRepository {
   // Track in-flight return operations to prevent duplicate processing
   static final Set<String> _inFlightReturnKeys = <String>{};
 
+  static String _normalizeCategoryValue(String? raw) {
+    final trimmed = raw?.trim() ?? '';
+    if (trimmed.toLowerCase() == 'others') {
+      return 'Others Key';
+    }
+    return trimmed;
+  }
+
+  static Map<String, dynamic> buildNormalizedKeyFirestorePayload({
+    required Map<String, dynamic> data,
+    String? keyName,
+  }) {
+    final normalizedData = Map<String, dynamic>.from(data);
+    final rawCategory = normalizedData['category']?.toString() ?? '';
+    final effectiveCategory = _normalizeCategoryValue(rawCategory);
+    normalizedData['category'] = effectiveCategory;
+
+    final metadataValue = normalizedData['metadata'];
+    final effectiveMetadata = metadataValue is Map
+        ? Map<String, dynamic>.from(metadataValue)
+        : <String, dynamic>{};
+
+    if (effectiveCategory == 'Others Key') {
+      effectiveMetadata.remove('level');
+      final labelNo = effectiveMetadata['labelNo']?.toString().trim() ?? '';
+      if (labelNo.isEmpty) {
+        final fallbackName = (keyName ?? normalizedData['keyName'] ?? '')
+            .toString()
+            .trim();
+        if (fallbackName.isNotEmpty) {
+          effectiveMetadata['labelNo'] = fallbackName;
+        }
+      }
+    } else {
+      effectiveMetadata.remove('labelNo');
+    }
+
+    normalizedData['metadata'] = effectiveMetadata;
+    return normalizedData;
+  }
+
+  static Map<String, dynamic> buildNormalizedEventLogFirestorePayload({
+    required Map<String, dynamic> data,
+  }) {
+    final normalizedData = buildNormalizedKeyFirestorePayload(
+      data: data,
+      keyName: data['keyName']?.toString(),
+    );
+    if (!normalizedData.containsKey('level') && data['level'] != null) {
+      normalizedData['level'] = data['level'];
+    }
+    return normalizedData;
+  }
+
+  static Future<int> migrateExistingKeysToNewFirestoreSchema({
+    bool dryRun = false,
+  }) async {
+    if (!_firestoreAvailable) {
+      return 0;
+    }
+
+    final snapshot = await _keysCollection.get();
+    var updatedCount = 0;
+    for (final doc in snapshot.docs) {
+      final normalized = buildNormalizedKeyFirestorePayload(
+        data: Map<String, dynamic>.from(doc.data()),
+        keyName: doc.data()['keyName']?.toString(),
+      );
+      final changed = _hasSchemaChanges(doc.data(), normalized);
+      if (!changed) {
+        continue;
+      }
+      if (!dryRun) {
+        await doc.reference.set(normalized, SetOptions(merge: true));
+      }
+      updatedCount += 1;
+    }
+    return updatedCount;
+  }
+
+  static Future<int> migrateExistingEventLogsToNewFirestoreSchema({
+    bool dryRun = false,
+  }) async {
+    if (!_firestoreAvailable) {
+      return 0;
+    }
+
+    final snapshot = await _eventLogCollection.get();
+    var updatedCount = 0;
+    for (final doc in snapshot.docs) {
+      final normalized = buildNormalizedEventLogFirestorePayload(
+        data: Map<String, dynamic>.from(doc.data()),
+      );
+      final changed = _hasSchemaChanges(doc.data(), normalized);
+      if (!changed) {
+        continue;
+      }
+      if (!dryRun) {
+        await doc.reference.set(normalized, SetOptions(merge: true));
+      }
+      updatedCount += 1;
+    }
+    return updatedCount;
+  }
+
+  static bool _hasSchemaChanges(
+    Map<String, dynamic> before,
+    Map<String, dynamic> after,
+  ) {
+    if (before.length != after.length) {
+      return true;
+    }
+
+    for (final entry in before.entries) {
+      final beforeValue = entry.value;
+      final afterValue = after[entry.key];
+      if (entry.key == 'metadata') {
+        if (beforeValue is! Map || afterValue is! Map) {
+          return true;
+        }
+        final beforeMetadata = Map<String, dynamic>.from(beforeValue);
+        final afterMetadata = Map<String, dynamic>.from(afterValue);
+        if (beforeMetadata.length != afterMetadata.length) {
+          return true;
+        }
+        for (final metadataEntry in beforeMetadata.entries) {
+          if (afterMetadata[metadataEntry.key] != metadataEntry.value) {
+            return true;
+          }
+        }
+        continue;
+      }
+
+      if (beforeValue != afterValue) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  static String resolveExportKeyLabel(EventLog event) {
+    final category = event.category.trim().toLowerCase();
+    final explicitLabel = event.metadata['labelNo']?.toString().trim() ?? '';
+    final explicitKeyName = event.keyName.trim();
+
+    if (category == 'others key' || category == 'others' || category == 'high risk') {
+      if (explicitKeyName.isNotEmpty) {
+        return explicitKeyName;
+      }
+      if (explicitLabel.isNotEmpty) {
+        return explicitLabel;
+      }
+      return event.metadata['keyName']?.toString().trim() ?? '';
+    }
+
+    if (explicitKeyName.isNotEmpty) {
+      return explicitKeyName;
+    }
+
+    return explicitLabel.isNotEmpty ? explicitLabel : event.metadata['keyName']?.toString().trim() ?? '';
+  }
+
   static Future<void> _saveKey(KeyRecord key) async {
     if (!_firestoreAvailable) return;
     final targetDocId = (key.docId?.trim().isNotEmpty ?? false)
@@ -517,8 +713,13 @@ class KeyRecordRepository {
         : _keyDocIdForRecord(key);
     final targetRef = _keysCollection.doc(targetDocId);
 
+    final normalizedPayload = buildNormalizedKeyFirestorePayload(
+      data: key.toFirestore(),
+      keyName: key.keyName,
+    );
+
     // Write deterministic doc first so updates are not blocked by full-collection scans.
-    await targetRef.set(key.toFirestore(), SetOptions(merge: true));
+    await targetRef.set(normalizedPayload, SetOptions(merge: true));
 
     // Update any existing docs for the same logical key.
     if (key.keyId.trim().isNotEmpty) {
@@ -529,7 +730,7 @@ class KeyRecordRepository {
         if (doc.id == targetDocId) {
           continue;
         }
-        await doc.reference.set(key.toFirestore(), SetOptions(merge: true));
+        await doc.reference.set(normalizedPayload, SetOptions(merge: true));
       }
     }
 
@@ -542,7 +743,7 @@ class KeyRecordRepository {
       if (!_sameLogicalKey(existing, key)) {
         continue;
       }
-      await doc.reference.set(key.toFirestore(), SetOptions(merge: true));
+      await doc.reference.set(normalizedPayload, SetOptions(merge: true));
     }
   }
 
@@ -1721,12 +1922,40 @@ class KeyRecordRepository {
     );
   }
 
+  static Future<void> markAtMaintenanceWithDetails(
+    KeyRecord record, {
+    required String actor,
+    required Map<String, dynamic> metadata,
+  }) async {
+    await _updateKeyStatusWithDetails(
+      record,
+      status: 'At Maintenance',
+      action: 'At Maintenance',
+      actor: resolveActor(actor),
+      metadata: metadata,
+    );
+  }
+
   static Future<void> markAtManagement(KeyRecord record) async {
     await _updateKeyStatus(
       record,
       status: 'At Management',
       action: 'At Management',
       actor: resolveActor(null),
+    );
+  }
+
+  static Future<void> markAtManagementWithDetails(
+    KeyRecord record, {
+    required String actor,
+    required Map<String, dynamic> metadata,
+  }) async {
+    await _updateKeyStatusWithDetails(
+      record,
+      status: 'At Management',
+      action: 'At Management',
+      actor: resolveActor(actor),
+      metadata: metadata,
     );
   }
 
@@ -1958,12 +2187,36 @@ class KeyRecordRepository {
     required String actor,
     bool lose = false,
   }) async {
+    await _updateKeyStatusWithDetails(
+      record,
+      status: status,
+      action: action,
+      actor: actor,
+      metadata: const <String, dynamic>{},
+      lose: lose,
+    );
+  }
+
+  static Future<void> _updateKeyStatusWithDetails(
+    KeyRecord record, {
+    required String status,
+    required String action,
+    required String actor,
+    required Map<String, dynamic> metadata,
+    bool lose = false,
+  }) async {
     final index = _indexForRecord(record);
     if (index == -1) {
       return;
     }
 
-    _keys[index] = _keys[index].copyWith(status: status);
+    final mergedMetadata = Map<String, dynamic>.from(_keys[index].metadata)
+      ..addAll(metadata);
+
+    _keys[index] = _keys[index].copyWith(
+      status: status,
+      metadata: mergedMetadata,
+    );
     final event = EventLog(
       action: action,
       keyId: _keys[index].keyId,
@@ -1978,6 +2231,7 @@ class KeyRecordRepository {
       status: status,
       lose: lose,
       actor: resolveActor(actor),
+      metadata: mergedMetadata,
     );
     await _appendEvent(event);
 

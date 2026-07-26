@@ -758,7 +758,7 @@ class _EventLogScreenState extends State<EventLogScreen> {
     final rollerNo = event.metadata['rollerNumber']?.toString().trim() ?? '';
     final lotNo = event.metadata['lotKey']?.toString().trim() ?? '';
     final masterKey = event.metadata['masterKey']?.toString().trim() ?? '';
-    final keyName = event.keyName.trim();
+    final keyName = KeyRecordRepository.resolveExportKeyLabel(event);
 
     if (category == 'zone') {
       return _joinLevelWithValue(level, zone);
@@ -790,8 +790,8 @@ class _EventLogScreenState extends State<EventLogScreen> {
       return _joinLevelWithValue(level, lotValue);
     }
 
-    if (category == 'high risk' || category == 'others') {
-      return _joinLevelWithValue(level, keyName);
+    if (category == 'high risk' || category == 'others key') {
+      return keyName.isNotEmpty ? keyName : _displayKey(event);
     }
 
     return _displayKey(event);
@@ -844,7 +844,8 @@ class _EventLogScreenState extends State<EventLogScreen> {
     if (level.isNotEmpty && zone.isNotEmpty) {
       return '$level/$zone';
     }
-    return event.keyId.isNotEmpty ? event.keyId : event.keyName;
+    final fallbackKeyName = KeyRecordRepository.resolveExportKeyLabel(event);
+    return event.keyId.isNotEmpty ? event.keyId : fallbackKeyName;
   }
 
   String _buildSimpleMessage(EventLog event) {

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../services/auth_service.dart';
 import '../../services/key_repository.dart';
 import '../smart_detail/smart_detail_screen.dart';
 
@@ -13,28 +12,137 @@ String _displayLevelLabel(String level) {
 
 int allKeysFolderOrder(String label) {
   final normalized = label.trim();
-  if (normalized == 'High Risk') {
+  final upper = normalized.toUpperCase();
+
+  if (upper.startsWith('ZONE ') || RegExp(r'^[A-Z]$').hasMatch(upper)) {
     return 0;
   }
-  if (normalized == 'Master Key' || normalized == 'MASTER KEY') {
-    return 1;
+  if (normalized == 'Zone Other') {
+    return 0;
   }
   if (normalized == 'Lot') {
-    return 2;
-  }
-  if (normalized == 'Others' || normalized == 'Others Key') {
-    return 3;
+    return 1;
   }
   if (normalized.startsWith('Roller Shutter')) {
-    return 4;
+    return 2;
   }
-  if (normalized.startsWith('Zone ')) {
+  if (normalized == 'High Risk') {
+    return 6;
+  }
+  if (upper == 'MASTER KEY' || normalized == 'Master Key' || normalized == 'Master Keys') {
+    return 0;
+  }
+  if (normalized == 'Others Keys' || normalized == 'Others Key' || normalized == 'Others') {
     return 5;
   }
-  if (normalized == 'Zone Other') {
-    return 5;
+  if (upper.startsWith('LEVEL ') || upper.startsWith('L')) {
+    return 6;
   }
-  return 6;
+  return 7;
+}
+
+int _naturalCompare(String a, String b) {
+  final partsA = _splitNaturalParts(a);
+  final partsB = _splitNaturalParts(b);
+  final minLength = partsA.length < partsB.length ? partsA.length : partsB.length;
+
+  for (var i = 0; i < minLength; i++) {
+    final left = partsA[i];
+    final right = partsB[i];
+
+    final leftNumber = int.tryParse(left);
+    final rightNumber = int.tryParse(right);
+    if (leftNumber != null && rightNumber != null) {
+      final numberCompare = leftNumber.compareTo(rightNumber);
+      if (numberCompare != 0) {
+        return numberCompare;
+      }
+      continue;
+    }
+
+    final textCompare = left.toUpperCase().compareTo(right.toUpperCase());
+    if (textCompare != 0) {
+      return textCompare;
+    }
+  }
+
+  return partsA.length.compareTo(partsB.length);
+}
+
+List<String> _splitNaturalParts(String value) {
+  final regex = RegExp(r'(\d+|\D+)');
+  return regex
+      .allMatches(value)
+      .map((match) => match.group(0) ?? '')
+      .toList();
+}
+
+Map<String, List<KeyRecord>> _allKeysFolderGroups(List<KeyRecord> records) {
+  final grouped = <String, List<KeyRecord>>{};
+  for (final record in records) {
+    final folderLabel = _allKeysFolderLabelForRecord(record);
+    grouped.putIfAbsent(folderLabel, () => <KeyRecord>[]).add(record);
+  }
+
+  final sortedEntries = grouped.entries.toList()
+    ..sort((a, b) {
+      final orderCompare = allKeysFolderOrder(a.key).compareTo(allKeysFolderOrder(b.key));
+      if (orderCompare != 0) {
+        return orderCompare;
+      }
+      return _naturalCompare(a.key.toUpperCase(), b.key.toUpperCase());
+    });
+
+  return {for (final entry in sortedEntries) entry.key: entry.value};
+}
+
+String _allKeysFolderLabelForRecord(KeyRecord record) {
+  if (record.category == 'Zone') {
+    return _zoneFolderLabelForAll(record);
+  }
+  if (record.category == 'Master Key') {
+    return 'Master Keys';
+  }
+  if (record.category == 'Lot') {
+    return 'Lot';
+  }
+  if (record.category == 'Roller Shutter') {
+    return 'Roller Shutter';
+  }
+  if (record.category == 'Others' || record.category == 'Others Key') {
+    return 'Others Key';
+  }
+  if (record.status == 'High Risk' &&
+      (record.category == 'High Risk' || record.category.isEmpty)) {
+    return 'Others Key';
+  }
+  return record.category;
+}
+
+String _zoneFolderLabelForAll(KeyRecord record) {
+  final zoneRaw =
+      (record.metadata['zone']?.toString().trim().isNotEmpty ?? false)
+          ? record.metadata['zone'].toString().trim()
+          : record.zone.trim();
+  final upper = zoneRaw.toUpperCase();
+  final zoneLetterMatch = RegExp(r'\bZONE\s*([A-Z])\b')
+          .firstMatch(upper)
+          ?.group(1) ??
+      RegExp(r'^([A-Z])$').firstMatch(upper)?.group(1);
+  if (zoneLetterMatch != null && zoneLetterMatch.isNotEmpty) {
+    return 'Zone $zoneLetterMatch';
+  }
+  if (upper.isNotEmpty) {
+    return upper;
+  }
+  return 'Zone Other';
+}
+
+bool shouldUseSpecialFolderForRecord(KeyRecord record) {
+  final category = record.category.trim();
+  return category == 'Master Key' ||
+      category == 'Others' ||
+      category == 'Others Key';
 }
 
 class AllKeysScreen extends StatefulWidget {
@@ -59,7 +167,7 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
     'Damaged',
     'Replaced',
     'High Risk',
-    'MASTER KEY',
+    'Master Key',
     'Zone',
     'Others Key',
   ];
@@ -79,7 +187,7 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
     'All',
     'B2',
     'B1',
-    for (var i = 1; i <= 40; i++) 'L$i',
+    for (var i = 1; i <= 41; i++) 'L$i',
   ];
 
   bool get _navigationUsesLevel {
@@ -282,24 +390,24 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
                       );
                     }
 
-                    final grouped = _groupByLevel(keys);
-                    final levelSections = _selectedLevel == 'All'
-                        ? grouped.entries.toList()
-                        : grouped.entries
-                              .where((entry) => entry.key == _selectedLevel)
-                              .toList();
+                    final displaySections = _buildDisplaySections(keys);
 
                     return ListView.builder(
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                      itemCount: levelSections.length,
+                      itemCount: displaySections.length,
                       itemBuilder: (context, index) {
-                        final section = levelSections[index];
+                        final section = displaySections[index];
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 14),
-                          child: _LevelSection(
-                            levelLabel: section.key,
-                            records: section.value,
-                          ),
+                          child: section.isLevelSection
+                              ? _LevelSection(
+                                  levelLabel: section.label,
+                                  records: section.records,
+                                )
+                              : _CategorySection(
+                                  title: section.label,
+                                  records: section.records,
+                                ),
                         );
                       },
                     );
@@ -388,6 +496,96 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
     };
   }
 
+  List<_DisplaySection> _buildDisplaySections(List<KeyRecord> keys) {
+    final sections = <_DisplaySection>[];
+    final specialCategories = <String, List<KeyRecord>>{
+      'Master Key': <KeyRecord>[],
+      'Others Key': <KeyRecord>[],
+    };
+    final remaining = <KeyRecord>[];
+
+    for (final record in keys) {
+      if (record.category == 'Master Key') {
+        specialCategories['Master Key']!.add(record);
+      } else if (record.category == 'Others' || record.category == 'Others Key') {
+        specialCategories['Others Key']!.add(record);
+      } else {
+        remaining.add(record);
+      }
+    }
+
+    if (_selectedNavigation == 'All') {
+      for (final entry in specialCategories.entries) {
+        if (entry.value.isNotEmpty) {
+          sections.add(_DisplaySection(label: entry.key, records: entry.value, isLevelSection: false));
+        }
+      }
+
+      if (remaining.isNotEmpty) {
+        final grouped = _groupByLevel(remaining);
+        final levelSections = _selectedLevel == 'All'
+            ? grouped.entries.toList()
+            : grouped.entries.where((entry) => entry.key == _selectedLevel).toList();
+        sections.addAll(
+          levelSections.map(
+            (entry) => _DisplaySection(
+              label: entry.key,
+              records: entry.value,
+              isLevelSection: true,
+            ),
+          ),
+        );
+      }
+
+      return sections;
+    }
+
+    for (final entry in specialCategories.entries) {
+      if (entry.value.isNotEmpty) {
+        sections.add(_DisplaySection(label: entry.key, records: entry.value, isLevelSection: false));
+      }
+    }
+
+
+    for (final record in keys) {
+      if (record.category == 'Master Key') {
+        specialCategories['Master Key']!.add(record);
+      } else if (record.category == 'Others' || record.category == 'Others Key') {
+        specialCategories['Others Key']!.add(record);
+      } else {
+        remaining.add(record);
+      }
+    }
+
+    for (final entry in specialCategories.entries) {
+      if (entry.value.isNotEmpty) {
+        sections.add(_DisplaySection(label: entry.key, records: entry.value, isLevelSection: false));
+      }
+    }
+
+    if (remaining.isNotEmpty) {
+      final grouped = _groupByLevel(remaining);
+      final levelSections = _selectedLevel == 'All'
+          ? grouped.entries.toList()
+          : grouped.entries.where((entry) => entry.key == _selectedLevel).toList();
+      sections.addAll(
+        levelSections.map(
+          (entry) => _DisplaySection(
+            label: entry.key,
+            records: entry.value,
+            isLevelSection: true,
+          ),
+        ),
+      );
+    }
+
+    if (sections.isEmpty && !_navigationUsesLevel) {
+      return const <_DisplaySection>[];
+    }
+
+    return sections;
+  }
+
   Map<String, List<KeyRecord>> _groupByLevel(List<KeyRecord> keys) {
     final map = <String, List<KeyRecord>>{};
     for (final level in _levelOptions) {
@@ -398,6 +596,9 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
     map['Other'] = <KeyRecord>[];
 
     for (final record in keys) {
+      if (record.category == 'Master Key') {
+        continue;
+      }
       final level = _recordLevel(record);
       if (map.containsKey(level)) {
         map[level]!.add(record);
@@ -411,6 +612,12 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
   }
 
   int _compareRecords(KeyRecord a, KeyRecord b) {
+    final categoryPriorityA = _categoryPriority(a.category);
+    final categoryPriorityB = _categoryPriority(b.category);
+    if (categoryPriorityA != categoryPriorityB) {
+      return categoryPriorityA.compareTo(categoryPriorityB);
+    }
+
     final topA = _topKeyLabel(a, _selectedNavigation).toUpperCase();
     final topB = _topKeyLabel(b, _selectedNavigation).toUpperCase();
     final byTop = _naturalCompare(topA, topB);
@@ -421,6 +628,20 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
     final byKeyId = _naturalCompare(a.keyId.toUpperCase(), b.keyId.toUpperCase());
     if (byKeyId != 0) return byKeyId;
     return _naturalCompare(a.keyName.toUpperCase(), b.keyName.toUpperCase());
+  }
+
+  int _categoryPriority(String category) {
+    final normalized = category.trim().toLowerCase();
+    if (normalized == 'zone') {
+      return 0;
+    }
+    if (normalized == 'lot') {
+      return 1;
+    }
+    if (normalized == 'roller shutter') {
+      return 2;
+    }
+    return 3;
   }
 
   int _naturalCompare(String a, String b) {
@@ -545,7 +766,11 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
       return _combineLevelAndValue(level, lotNo);
     }
 
-    if (effectiveCategory == 'Others') {
+    if (effectiveCategory == 'Others' || effectiveCategory == 'Others Key') {
+      final labelNo = record.metadata['labelNo']?.toString().trim() ?? '';
+      if (labelNo.isNotEmpty) {
+        return labelNo;
+      }
       return record.keyName;
     }
 
@@ -562,6 +787,75 @@ class _AllKeysScreenState extends State<AllKeysScreen> {
       return cleanValue;
     }
     return cleanLevel.isNotEmpty ? cleanLevel : 'Unnamed Key';
+  }
+}
+
+class _DisplaySection {
+  const _DisplaySection({
+    required this.label,
+    required this.records,
+    required this.isLevelSection,
+  });
+
+  final String label;
+  final List<KeyRecord> records;
+  final bool isLevelSection;
+}
+
+class _CategorySection extends StatelessWidget {
+  const _CategorySection({required this.title, required this.records});
+
+  final String title;
+  final List<KeyRecord> records;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFDCE3E7)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                title,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8F1F8),
+                  borderRadius: BorderRadius.circular(100),
+                ),
+                child: Text(
+                  '${records.length} keys',
+                  style: const TextStyle(
+                    color: Color(0xFF1E3A5F),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (title == 'All Keys') ...[
+            for (final entry in _allKeysFolderGroups(records).entries)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _FolderGroupCard(label: entry.key, records: entry.value),
+              ),
+          ] else ...[
+            _FolderGroupCard(label: title, records: records),
+          ],
+        ],
+      ),
+    );
   }
 }
 
@@ -620,7 +914,7 @@ class _LevelSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final groupedRecords = _folderGroups();
+    final groupedFolders = _foldersByLevel();
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -658,7 +952,7 @@ class _LevelSection extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          ...groupedRecords.entries.map((entry) {
+          ...groupedFolders.entries.map((entry) {
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: _FolderGroupCard(label: entry.key, records: entry.value),
@@ -669,57 +963,55 @@ class _LevelSection extends StatelessWidget {
     );
   }
 
-  Map<String, List<KeyRecord>> _folderGroups() {
+  Map<String, List<KeyRecord>> _foldersByLevel() {
     final grouped = <String, List<KeyRecord>>{};
 
     for (final record in records) {
-      final groupLabel = _folderLabelForRecord(record);
-      grouped.putIfAbsent(groupLabel, () => <KeyRecord>[]).add(record);
+      final folderLabel = _levelFolderLabel(record);
+      grouped.putIfAbsent(folderLabel, () => <KeyRecord>[]).add(record);
     }
 
     final sortedEntries = grouped.entries.toList()
-      ..sort((a, b) => _folderOrder(a.key).compareTo(_folderOrder(b.key)));
+      ..sort((a, b) {
+        final orderCompare = allKeysFolderOrder(a.key).compareTo(allKeysFolderOrder(b.key));
+        if (orderCompare != 0) {
+          return orderCompare;
+        }
+        return _naturalCompare(a.key.toUpperCase(), b.key.toUpperCase());
+      });
 
     return {for (final entry in sortedEntries) entry.key: entry.value};
   }
 
-  String _folderLabelForRecord(KeyRecord record) {
-    if (record.category == 'Zone') {
-      return _zoneFolderLabel(record);
+  String _levelFolderLabel(KeyRecord record) {
+    if (record.category == 'Lot') {
+      return 'Lot';
     }
-
-    if (record.category == 'Master Key') {
-      return 'MASTER KEY';
-    }
-
     if (record.category == 'Roller Shutter') {
-      return levelLabel == 'Other'
-          ? 'Roller Shutter'
-          : 'Roller Shutter (${_displayLevelLabel(levelLabel)})';
+      return 'Roller Shutter';
     }
-
-    return record.category;
+    if (record.category == 'Zone') {
+      return _zoneGroupLabel(record);
+    }
+    return record.category.isNotEmpty ? record.category : 'Other';
   }
 
-  String _zoneFolderLabel(KeyRecord record) {
+  String _zoneGroupLabel(KeyRecord record) {
     final zoneRaw =
         (record.metadata['zone']?.toString().trim().isNotEmpty ?? false)
-        ? record.metadata['zone'].toString().trim()
-        : record.zone.trim();
+            ? record.metadata['zone'].toString().trim()
+            : record.zone.trim();
     final upper = zoneRaw.toUpperCase();
-    final trailingAlpha = RegExp(r'([A-Z]+)$').firstMatch(upper)?.group(1);
-    if (trailingAlpha != null && trailingAlpha.isNotEmpty) {
-      return 'Zone $trailingAlpha';
+    final zoneLetterMatch = RegExp(r'\bZONE\s*([A-C])\b').firstMatch(upper)?.group(1)
+        ?? RegExp(r'([A-C])\b').firstMatch(upper)?.group(1);
+    if (zoneLetterMatch != null && zoneLetterMatch.isNotEmpty) {
+      return 'Zone $zoneLetterMatch';
     }
-
     if (upper.isNotEmpty) {
-      return 'Zone $upper';
+      return upper;
     }
-
     return 'Zone Other';
   }
-
-  int _folderOrder(String label) => allKeysFolderOrder(label);
 }
 
 class _FolderGroupCard extends StatelessWidget {
@@ -739,6 +1031,7 @@ class _FolderGroupCard extends StatelessWidget {
       child: Material(
         color: Colors.transparent,
         child: ExpansionTile(
+          initiallyExpanded: false,
           tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
           childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
           leading: const Icon(Icons.folder_outlined, color: Color(0xFF1E3A5F)),
@@ -803,6 +1096,7 @@ class _KeyRecordCard extends StatelessWidget {
           border: Border.all(color: const Color(0xFFE0E5E8)),
         ),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
               child: Column(
@@ -810,230 +1104,48 @@ class _KeyRecordCard extends StatelessWidget {
                 children: [
                   Text(
                     primaryLabel,
+                    overflow: TextOverflow.visible,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w700,
+                      height: 1.35,
                     ),
                   ),
                   if (secondaryLabel.isNotEmpty) ...[
                     const SizedBox(height: 6),
                     Text(
                       secondaryLabel,
+                      overflow: TextOverflow.visible,
                       style: Theme.of(
                         context,
-                      ).textTheme.bodySmall?.copyWith(color: Colors.black54),
+                      ).textTheme.bodySmall?.copyWith(color: Colors.black54, height: 1.35),
                     ),
                   ],
                   if (_remark(record).isNotEmpty) ...[
                     const SizedBox(height: 6),
                     Text(
                       'Remark: ${_remark(record)}',
+                      overflow: TextOverflow.visible,
                       style: Theme.of(
                         context,
-                      ).textTheme.bodySmall?.copyWith(color: Colors.black54),
+                      ).textTheme.bodySmall?.copyWith(color: Colors.black54, height: 1.35),
                     ),
                   ],
                 ],
               ),
             ),
-            IconButton(
-              tooltip: 'Edit Remark',
-              icon: const Icon(Icons.edit_note_outlined, color: Color(0xFF1E3A5F)),
-              onPressed: () => _editRemark(context),
-            ),
-            PopupMenuButton<String>(
-              tooltip: 'Quick Status',
-              onSelected: (value) async {
-                await _openQuickStatusDialog(context, value);
-              },
-              itemBuilder: (context) => const [
-                PopupMenuItem(
-                  value: 'At Maintenance',
-                  child: Text('At Maintenance'),
-                ),
-                PopupMenuItem(
-                  value: 'At Management',
-                  child: Text('At Management'),
-                ),
-                PopupMenuItem(
-                  value: 'High Risk',
-                  child: Text('High Risk'),
-                ),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                _StatusChip(status: record.status),
+                const SizedBox(height: 6),
+                const Icon(Icons.chevron_right, color: Color(0xFF607D8B)),
               ],
-              child: const Icon(Icons.flash_on_outlined, color: Color(0xFF1E3A5F)),
             ),
-            _StatusChip(status: record.status),
-            const SizedBox(width: 6),
-            const Icon(Icons.chevron_right, color: Color(0xFF607D8B)),
           ],
         ),
       ),
     );
-  }
-
-  Future<void> _openQuickStatusDialog(BuildContext context, String targetStatus) async {
-    final formKey = GlobalKey<FormState>();
-    String selectedStatus = targetStatus;
-    final messenger = ScaffoldMessenger.of(context);
-
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Quick Status Update'),
-          content: StatefulBuilder(
-            builder: (context, setDialogState) {
-              return Form(
-                key: formKey,
-                child: DropdownButtonFormField<String>(
-                  value: selectedStatus,
-                  decoration: InputDecoration(
-                    labelText: 'Status',
-                    filled: true,
-                    fillColor: const Color(0xFFF9FBFC),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  items: [targetStatus]
-                      .map(
-                        (status) => DropdownMenuItem(
-                          value: status,
-                          child: Text(status),
-                        ),
-                      )
-                      .toList(growable: false),
-                  onChanged: (value) {
-                    if (value == null) {
-                      return;
-                    }
-                    setDialogState(() => selectedStatus = value);
-                  },
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Required';
-                    }
-                    return null;
-                  },
-                ),
-              );
-            },
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                if (!(formKey.currentState?.validate() ?? false)) {
-                  return;
-                }
-
-                try {
-                  switch (selectedStatus) {
-                    case 'At Maintenance':
-                      await KeyRecordRepository.markAtMaintenance(record);
-                      break;
-                    case 'At Management':
-                      await KeyRecordRepository.markAtManagement(record);
-                      break;
-                    case 'High Risk':
-                      await KeyRecordRepository.markHighRisk(record);
-                      break;
-                  }
-                  if (!context.mounted) {
-                    return;
-                  }
-                  Navigator.of(dialogContext).pop();
-                  messenger.showSnackBar(
-                    SnackBar(content: Text('Status updated to $selectedStatus.')),
-                  );
-                } catch (error) {
-                  if (!context.mounted) {
-                    return;
-                  }
-                  messenger.showSnackBar(
-                    SnackBar(content: Text('Save failed: $error')),
-                  );
-                }
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Future<void> _editRemark(BuildContext context) async {
-    final controller = TextEditingController(text: _remark(record));
-    final messenger = ScaffoldMessenger.of(context);
-    final navigator = Navigator.of(context);
-
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Edit Remark'),
-          content: TextField(
-            controller: controller,
-            maxLines: 4,
-            decoration: const InputDecoration(
-              labelText: 'Remark',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                final metadata = Map<String, dynamic>.from(record.metadata);
-                final remarkValue = controller.text.trim();
-                if (remarkValue.isEmpty) {
-                  metadata.remove('remark');
-                  metadata.remove('remarks');
-                } else {
-                  metadata['remark'] = remarkValue;
-                  metadata.remove('remarks');
-                }
-
-                try {
-                  await KeyRecordRepository.updateRegisteredKeyDetails(
-                    keyId: record.keyId,
-                    zone: record.zone,
-                    keyName: record.keyName,
-                    category: record.category,
-                    status: record.status,
-                    recordedBy: AuthService.activeUser,
-                    metadata: metadata,
-                  );
-                  if (!context.mounted) {
-                    return;
-                  }
-                  navigator.pop();
-                  messenger.showSnackBar(
-                    const SnackBar(content: Text('Remark updated.')),
-                  );
-                } catch (error) {
-                  if (!context.mounted) {
-                    return;
-                  }
-                  messenger.showSnackBar(
-                    SnackBar(content: Text('Save failed: $error')),
-                  );
-                }
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        );
-      },
-    );
-
-    controller.dispose();
   }
 
   String _topKeyLabel(KeyRecord record) {
@@ -1070,8 +1182,12 @@ class _KeyRecordCard extends StatelessWidget {
       );
     }
 
-    if (record.category == 'High Risk' || record.category == 'Others') {
-      return _combineLevelAndValue(level, record.keyName);
+    if (record.category == 'Others' || record.category == 'Others Key') {
+      final labelNo = (record.metadata['labelNo']?.toString() ?? '').trim();
+      if (labelNo.isNotEmpty) {
+        return labelNo;
+      }
+      return record.keyName;
     }
 
     return _combineLevelAndValue(level, record.keyName);
@@ -1081,10 +1197,19 @@ class _KeyRecordCard extends StatelessWidget {
     if (record.category == 'Roller Shutter') {
       return 'Roller Shutter';
     }
+    if (record.category == 'Others' || record.category == 'Others Key') {
+      final labelNo = (record.metadata['labelNo']?.toString() ?? '').trim();
+      return labelNo.isNotEmpty ? labelNo : record.keyName;
+    }
     return _topKeyLabel(record);
   }
 
   String _secondaryLabel(KeyRecord record) {
+    if (record.category == 'Others' || record.category == 'Others Key') {
+      final keyName = record.keyName.trim();
+      return keyName.isNotEmpty ? keyName : '';
+    }
+
     if (record.category != 'Roller Shutter') {
       return '';
     }

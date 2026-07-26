@@ -31,7 +31,6 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
     'Not Available',
     'Hand Over',
     'Damaged',
-    'Replaced',
     'High Risk',
   ];
 
@@ -65,7 +64,7 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
 
       final latest = keys.where((item) {
         return item.keyId == _currentRecord.keyId ||
-            item.docId == _currentRecord.docId;
+            (item.docId != null && item.docId == _currentRecord.docId);
       }).toList(growable: false);
 
       if (latest.isEmpty) {
@@ -154,13 +153,16 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                       _StatusTag(status: _currentRecord.status),
                     ],
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _currentRecord.zone,
-                    style: Theme.of(
-                      context,
-                    ).textTheme.titleMedium?.copyWith(color: Colors.black54),
-                  ),
+                  if (_currentRecord.category != 'Others' &&
+                      _currentRecord.category != 'Others Key') ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      _currentRecord.zone,
+                      style: Theme.of(
+                        context,
+                      ).textTheme.titleMedium?.copyWith(color: Colors.black54),
+                    ),
+                  ],
                   const SizedBox(height: 18),
                   ReadOnlyDetailField(
                     label: 'Key Name',
@@ -174,9 +176,10 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                     label: 'Location',
                     value: _readMetadata('location'),
                   ),
-                  ReadOnlyDetailField(label: 'Level', value: _readMetadata('level')),
-                  if (_currentRecord.category == 'Zone' ||
-                      _currentRecord.category == 'Others')
+                  if (_currentRecord.category != 'Others' &&
+                      _currentRecord.category != 'Others Key')
+                    ReadOnlyDetailField(label: 'Level', value: _readMetadata('level')),
+                  if (_currentRecord.category == 'Zone')
                     ReadOnlyDetailField(
                       label: 'Zone',
                       value: _readMetadata(
@@ -306,40 +309,6 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                           ),
                         ),
                       ),
-                      PopupMenuButton<String>(
-                        onSelected: (value) async {
-                          if (_isBusy) {
-                            return;
-                          }
-                          setState(() => _isBusy = true);
-                          try {
-                            await _openQuickStatusDialog(context, value);
-                          } finally {
-                            if (mounted) {
-                              setState(() => _isBusy = false);
-                            }
-                          }
-                        },
-                        itemBuilder: (context) => const [
-                          PopupMenuItem(
-                            value: 'At Maintenance',
-                            child: Text('At Maintenance'),
-                          ),
-                          PopupMenuItem(
-                            value: 'At Management',
-                            child: Text('At Management'),
-                          ),
-                          PopupMenuItem(
-                            value: 'High Risk',
-                            child: Text('High Risk'),
-                          ),
-                        ],
-                        child: OutlinedButton.icon(
-                          onPressed: null,
-                          icon: const Icon(Icons.flash_on_outlined),
-                          label: const Text('Quick Status'),
-                        ),
-                      ),
                       if (_canAddKey)
                         FilledButton.icon(
                           onPressed: () {
@@ -385,8 +354,12 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                             child: Text('Lost'),
                           ),
                           const PopupMenuItem(
-                            value: 'Replaced',
-                            child: Text('Replaced'),
+                            value: 'Available',
+                            child: Text('Available'),
+                          ),
+                          const PopupMenuItem(
+                            value: 'High Risk',
+                            child: Text('High Risk'),
                           ),
                           if (_currentRecord.status == 'In Use')
                             const PopupMenuItem(
@@ -409,10 +382,6 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                           const PopupMenuItem(
                             value: 'At Management',
                             child: Text('At Management'),
-                          ),
-                          const PopupMenuItem(
-                            value: 'High Risk',
-                            child: Text('High Risk'),
                           ),
                           const PopupMenuItem(
                             value: 'Delete Key',
@@ -446,9 +415,6 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
 
   bool get _canAddKey => KeyRecordRepository.isIssueEligibleStatus(_currentRecord.status);
 
-  bool get _canReturn =>
-      _currentRecord.status == 'In Use' || _currentRecord.status == 'Hand Over';
-
   Future<void> _handleAction(BuildContext context, String action) async {
     if (action == 'Returned') {
       await KeyRecordRepository.returnKey(_currentRecord);
@@ -464,7 +430,7 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
       await KeyRecordRepository.returnKey(_currentRecord);
     } else if (action == 'Lost') {
       await KeyRecordRepository.markLost(_currentRecord);
-    } else if (action == 'Replaced') {
+    } else if (action == 'Available') {
       await KeyRecordRepository.markReplaced(_currentRecord);
     } else if (action == 'Hand Over') {
       if (_currentRecord.status != 'In Use') {
@@ -501,9 +467,15 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
     } else if (action == 'Damaged') {
       await KeyRecordRepository.markDamaged(_currentRecord);
     } else if (action == 'At Maintenance') {
-      await KeyRecordRepository.markAtMaintenance(_currentRecord);
+      final saved = await _openStatusDetailDialog(context, 'At Maintenance');
+      if (!saved) {
+        return;
+      }
     } else if (action == 'At Management') {
-      await KeyRecordRepository.markAtManagement(_currentRecord);
+      final saved = await _openStatusDetailDialog(context, 'At Management');
+      if (!saved) {
+        return;
+      }
     } else if (action == 'High Risk') {
       await KeyRecordRepository.markHighRisk(_currentRecord);
     }
@@ -532,91 +504,166 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
     }
   }
 
-  Future<void> _openQuickStatusDialog(BuildContext context, String targetStatus) async {
-    final formKey = GlobalKey<FormState>();
-    String selectedStatus = targetStatus;
-    final screenContext = context;
-    final messenger = ScaffoldMessenger.of(context);
 
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Quick Status Update'),
-          content: StatefulBuilder(
-            builder: (context, setDialogState) {
-              return Form(
-                key: formKey,
-                child: DropdownButtonFormField<String>(
-                  value: selectedStatus,
-                  decoration: InputDecoration(
-                    labelText: 'Status',
-                    filled: true,
-                    fillColor: const Color(0xFFF9FBFC),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  items: [
-                    targetStatus,
-                  ]
-                      .map(
-                        (status) => DropdownMenuItem(
-                          value: status,
-                          child: Text(status),
-                        ),
-                      )
-                      .toList(growable: false),
-                  onChanged: (value) {
-                    if (value == null) {
-                      return;
-                    }
-                    setDialogState(() => selectedStatus = value);
-                  },
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Required';
-                    }
-                    return null;
-                  },
-                ),
-              );
-            },
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                if (!(formKey.currentState?.validate() ?? false)) {
-                  return;
-                }
-                try {
-                  await _handleAction(screenContext, selectedStatus);
-                  if (!mounted) {
-                    return;
-                  }
-                  Navigator.of(dialogContext).pop();
-                  messenger.showSnackBar(
-                    SnackBar(content: Text('Status updated to $selectedStatus.')),
-                  );
-                } catch (error) {
-                  if (!mounted) {
-                    return;
-                  }
-                  messenger.showSnackBar(
-                    SnackBar(content: Text('Save failed: $error')),
-                  );
-                }
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        );
-      },
+  Future<bool> _openStatusDetailDialog(BuildContext context, String status) async {
+    final formKey = GlobalKey<FormState>();
+    final staffNameController = TextEditingController(
+      text: _readMetadata('staffName'),
     );
+    final staffPhoneNumberController = TextEditingController(
+      text: _readMetadata('staffPhoneNumber'),
+    );
+    final departmentController = TextEditingController(
+      text: _readMetadata('department'),
+    );
+    final purposeController = TextEditingController(
+      text: _readMetadata('purpose'),
+    );
+    final dateController = TextEditingController(
+      text: _readMetadata('date').isNotEmpty
+          ? _readMetadata('date')
+          : _formatDate(DateTime.now()),
+    );
+    final timeController = TextEditingController(
+      text: _readMetadata('time').isNotEmpty
+          ? _readMetadata('time')
+          : _formatTime(DateTime.now()),
+    );
+    final issueByController = TextEditingController(
+      text: AuthService.activeUser,
+    );
+    final remarkController = TextEditingController(
+      text: _readMetadata('remark', fallback: _readMetadata('remarks')),
+    );
+
+    try {
+      final saved = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: Text('$status Details'),
+            content: Form(
+              key: formKey,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _EditableField(
+                      controller: staffNameController,
+                      label: 'Name Staff',
+                      requiredField: true,
+                    ),
+                    _EditableField(
+                      controller: staffPhoneNumberController,
+                      label: 'No. Phone Staff',
+                      requiredField: true,
+                      keyboardType: TextInputType.phone,
+                    ),
+                    _EditableField(
+                      controller: departmentController,
+                      label: 'Department',
+                      requiredField: true,
+                    ),
+                    _EditableField(
+                      controller: purposeController,
+                      label: 'Purpose',
+                      requiredField: true,
+                    ),
+                    _EditableField(
+                      controller: dateController,
+                      label: 'Date',
+                      requiredField: true,
+                    ),
+                    _EditableField(
+                      controller: timeController,
+                      label: 'Time',
+                      requiredField: true,
+                    ),
+                    _EditableField(
+                      controller: issueByController,
+                      label: 'Issue By',
+                      requiredField: true,
+                      readOnly: true,
+                    ),
+                    _EditableField(
+                      controller: remarkController,
+                      label: 'Remark',
+                      maxLines: 3,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () async {
+                  if (!(formKey.currentState?.validate() ?? false)) {
+                    return;
+                  }
+
+                  final metadata = <String, dynamic>{
+                    'staffName': staffNameController.text.trim(),
+                    'staffPhoneNumber': staffPhoneNumberController.text.trim(),
+                    'department': departmentController.text.trim(),
+                    'purpose': purposeController.text.trim(),
+                    'date': dateController.text.trim(),
+                    'time': timeController.text.trim(),
+                    'issueBy': issueByController.text.trim(),
+                    'remark': remarkController.text.trim(),
+                  };
+
+                  if (status == 'At Maintenance') {
+                    await KeyRecordRepository.markAtMaintenanceWithDetails(
+                      _currentRecord,
+                      actor: AuthService.activeUser,
+                      metadata: metadata,
+                    );
+                  } else {
+                    await KeyRecordRepository.markAtManagementWithDetails(
+                      _currentRecord,
+                      actor: AuthService.activeUser,
+                      metadata: metadata,
+                    );
+                  }
+
+                  if (dialogContext.mounted) {
+                    Navigator.of(dialogContext).pop(true);
+                  }
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          );
+        },
+      ) ??
+      false;
+
+      if (!saved || !mounted) {
+        return false;
+      }
+
+      final latest = KeyRecordRepository.searchKeys(
+        _currentRecord.keyId,
+      ).where((item) => item.keyId == _currentRecord.keyId).toList();
+      if (latest.isNotEmpty) {
+        setState(() => _currentRecord = latest.first);
+      }
+
+      return true;
+    } finally {
+      staffNameController.dispose();
+      staffPhoneNumberController.dispose();
+      departmentController.dispose();
+      purposeController.dispose();
+      dateController.dispose();
+      timeController.dispose();
+      issueByController.dispose();
+      remarkController.dispose();
+    }
   }
 
   Future<bool> _openHandoverDialog(BuildContext context) async {
@@ -967,7 +1014,6 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
       final metadata = Map<String, dynamic>.from(_currentRecord.metadata)
         ..addAll({
           'location': selectedLocation.trim(),
-          'level': selectedLevel.trim(),
           'zone': zoneController.text.trim(),
           'masterKey': masterKeyController.text.trim(),
           'lotKey': lotKeyController.text.trim(),
@@ -1080,45 +1126,48 @@ class _SmartDetailScreenState extends State<SmartDetailScreen> {
                             },
                           ),
                         ),
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: DropdownButtonFormField<String>(
-                            value: selectedLevel.isEmpty ? null : selectedLevel,
-                            decoration: InputDecoration(
-                              labelText: 'Level',
-                              filled: true,
-                              fillColor: const Color(0xFFF9FBFC),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
+                        if (category != 'Others' &&
+                            category != 'Others Key' &&
+                            category != 'Master Key')
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: DropdownButtonFormField<String>(
+                              value: selectedLevel.isEmpty ? null : selectedLevel,
+                              decoration: InputDecoration(
+                                labelText: 'Level',
+                                filled: true,
+                                fillColor: const Color(0xFFF9FBFC),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
                               ),
+                              items: [
+                                'B2',
+                                'B1',
+                                for (var i = 1; i <= 41; i++) 'Level $i',
+                              ]
+                                  .map(
+                                    (level) => DropdownMenuItem(
+                                      value: level,
+                                      child: Text(level),
+                                    ),
+                                  )
+                                  .toList(growable: false),
+                              onChanged: (value) {
+                                if (value == null) {
+                                  return;
+                                }
+                                setDialogState(() => selectedLevel = value);
+                              },
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return 'Required';
+                                }
+                                return null;
+                              },
                             ),
-                            items: [
-                              'B2',
-                              'B1',
-                              for (var i = 1; i <= 40; i++) 'Level $i',
-                            ]
-                                .map(
-                                  (level) => DropdownMenuItem(
-                                    value: level,
-                                    child: Text(level),
-                                  ),
-                                )
-                                .toList(growable: false),
-                            onChanged: (value) {
-                              if (value == null) {
-                                return;
-                              }
-                              setDialogState(() => selectedLevel = value);
-                            },
-                            validator: (value) {
-                              if (value == null || value.trim().isEmpty) {
-                                return 'Required';
-                              }
-                              return null;
-                            },
                           ),
-                        ),
-                        if (category == 'Zone' || category == 'Others')
+                        if (category == 'Zone')
                           _EditableField(
                             controller: zoneController,
                             label: 'Zone',
